@@ -46,3 +46,4 @@ return <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "
 export function LiveDot({ color = "#34D399" }) {
 return <span style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />;
 }
+// Cache bust
