@@ -1,13 +1,15 @@
-import { C, DISPLAY, BODY, stageOf } from "./supabase";
+import React from "react";
+import { C, stageOf } from "./supabase";
+
+const BODY = "Inter, system-ui, sans-serif";
 
 export const inputStyle = {
-fontFamily: BODY, border: `1px solid ${C.line}`, background: "#FBFCFD",
-color: C.ink, borderRadius: 6, padding: "8px 12px", fontSize: 14, width: "100%", outline: "none"
+fontFamily: BODY, border: `1px solid #ddd`, background: "#FBFCFD",
+color: "#222", borderRadius: 6, padding: "8px 12px", fontSize: 14, width: "100%", outline: "none"
 };
 
 export const btn = (bg, color = "#fff") => ({
-background: bg, color, fontFamily: BODY, fontWeight: 700, fontSize: 14,
-padding: "8px 16px", borderRadius: 6,
+background: bg, color, fontFamily: BODY, fontWeight: 700, fontSize: 14, padding: "8px 16px", borderRadius: 6
 });
 
 export const btnSm = (bg, color = "#fff") => ({ ...btn(bg, color), fontSize: 12, padding: "4px 10px" });
@@ -21,33 +23,20 @@ return <select {...props} style={{ ...inputStyle, ...props.style }}>{children}</
 }
 
 export function Label({ children }) {
-return <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{children}</div>;
+return <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>{children}</div>;
 }
 
-export function SectionTitle({ children, right }) {
-return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><h3 style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{right}</h3></div>;
+export function SectionTitle({ children }) {
+return <h3 style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase" }}>{children}</h3>;
 }
 
 export function StatusChip({ status, big }) {
 const s = stageOf(status);
-return (
-<span style={{
-display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 999, fontWeight: big ? 600 : 500,
-padding: big ? "4px 12px" : "2px 8px", fontSize: big ? 14 : 12,
-background: s.color + "1A", color: s.color, fontFamily: BODY,
-}}>
-<span style={{ width: 6, height: 6, borderRadius: 999, background: s.color }} />
-{s.label}
-</span>
-);
+return <span style={{ display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 999, fontWeight: big ? 600 : 500, padding: big ? "4px 12px" : "2px 8px", fontSize: big ? 14 : 12, background: s.color + "1A", color: s.color }}>{s.label}</span>;
 }
 
 export function Card({ children, style }) {
-return (
-<div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 18, ...style }}>
-{children}
-</div>
-);
+return <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 8, padding: 18, ...style }}>{children}</div>;
 }
 
 export function Row({ children, style }) {
@@ -55,14 +44,5 @@ return <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "
 }
 
 export function LiveDot({ color = "#34D399" }) {
-return (
-<span className="pulse" style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />
-);
-}
-
-if (typeof document !== "undefined" && !document.getElementById("shop-anim")) {
-const s = document.createElement("style");
-s.id = "shop-anim";
-s.textContent = "@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.35 } }";
-document.head.appendChild(s);
+return <span style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />;
 }
