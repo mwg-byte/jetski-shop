@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, C, DISPLAY, BODY, isManager } from "./lib/supabase";
 import { useAuth } from "./AuthContext";
+import { Row } from "./lib/ui";
 import { WorkOrderList, NewOrderForm } from "./views/WorkOrders";
 import OrderDetail from "./views/OrderDetail";
 import ShiftClock from "./views/ShiftClock";
