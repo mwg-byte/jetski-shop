@@ -41,9 +41,11 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
-  const patchOrder = async (patch) => {
-    setOrder({ ...order, ...patch });
-    await supabase.from("work_orders").update(patch).eq("id", orderId);
+    const patchOrder = async (patch) => {
+    const full = { ...patch };
+    if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
+    setOrder({ ...order, ...full });
+    await supabase.from("work_orders").update(full).eq("id", orderId);
   };
   const totalHrs = round2(hours.reduce((s, h) => s + Number(h.hours), 0));
 
