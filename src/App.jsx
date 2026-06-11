@@ -10,6 +10,7 @@ import MyHours from "./views/MyHours";
 import Mileage from "./views/Mileage";
 import Crew from "./views/Crew";
 import Payroll from "./views/Payroll";
+import Reports from "./views/Reports";
 import Settings from "./views/Settings";
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
     { key: "laketest", label: "Lake test", show: true },
     { key: "mileage", label: "Mileage", show: true },
     { key: "payroll", label: "Payroll", show: mgr },
+    { key: "reports", label: "Reports", show: mgr },
     { key: "crew", label: "Crew", show: mgr },
     { key: "settings", label: "Settings", show: mgr },
   ].filter((n) => n.show);
@@ -114,6 +116,8 @@ export default function App() {
           <Mileage crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "payroll" ? (
           <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "reports" ? (
+          <Reports onBack={() => setView({ name: "list" })} />
         ) : view.name === "crew" ? (
           <Crew onCrewChange={loadCrew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "settings" ? (
