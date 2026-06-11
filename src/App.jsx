@@ -6,6 +6,7 @@ import { WorkOrderList, NewOrderForm } from "./views/WorkOrders";
 import OrderDetail from "./views/OrderDetail";
 import ShiftClock from "./views/ShiftClock";
 import LakeClock from "./views/LakeClock";
+import MyHours from "./views/MyHours";
 import Mileage from "./views/Mileage";
 import Crew from "./views/Crew";
 import Payroll from "./views/Payroll";
@@ -54,6 +55,7 @@ export default function App() {
   const navItems = [
     { key: "list", label: "Work orders", show: true },
     { key: "timeclock", label: "Time clock", show: true },
+    { key: "myhours", label: "My hours", show: true },
     { key: "laketest", label: "Lake test", show: true },
     { key: "mileage", label: "Mileage", show: true },
     { key: "payroll", label: "Payroll", show: mgr },
@@ -104,6 +106,8 @@ export default function App() {
             onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "timeclock" ? (
           <ShiftClock crew={crew} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
+        ) : view.name === "myhours" ? (
+          <MyHours crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "laketest" ? (
           <LakeClock crew={crew} orders={orders} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "mileage" ? (
