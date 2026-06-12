@@ -2,7 +2,7 @@ import { useState } from "react";
 import { supabase, C, DISPLAY, BODY, STAGES } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, LiveDot } from "../lib/ui";
 
-export function WorkOrderList({ orders, crew, liveCounts, onOpen, onReorder, onNew }) {
+export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew }) {
   const [statusFilter, setStatusFilter] = useState("open");
   const [techFilter, setTechFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -13,7 +13,7 @@ export function WorkOrderList({ orders, crew, liveCounts, onOpen, onReorder, onN
     .filter(({ o }) => {
       if (statusFilter === "open" && o.status === "closed") return false;
       if (statusFilter !== "open" && statusFilter !== "all" && o.status !== statusFilter) return false;
-      if (techFilter !== "all" && o.assigned_to !== techFilter) return false;
+      if (techFilter !== "all" && !((assignees[o.id] || []).includes(techFilter))) return false;
       if (q && ![o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q)) return false;
       return true;
     });
@@ -36,12 +36,12 @@ export function WorkOrderList({ orders, crew, liveCounts, onOpen, onReorder, onN
       {orders.length === 0 ? (
         <Card style={{ textAlign: "center", padding: 40, borderStyle: "dashed" }}>
           <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>No work orders yet</div>
-          <button onClick={onNew} style={{ ...btn(C.orange), marginTop: 16 }}>+ New work order</button>
+          {canCreate && <button onClick={onNew} style={{ ...btn(C.orange), marginTop: 16 }}>+ New work order</button>}
         </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {visible.map(({ o, rank }) => {
-            const tech = crew.find((t) => t.id === o.assigned_to);
+            const names = (assignees[o.id] || []).map((id) => crew.find((t) => t.id === id)?.display_name).filter(Boolean);
             const live = liveCounts[o.id] || 0;
             return (
               <div key={o.id} style={{ display: "flex", borderRadius: 8, overflow: "hidden", background: C.card, border: `1px solid ${C.line}` }}>
@@ -64,7 +64,7 @@ export function WorkOrderList({ orders, crew, liveCounts, onOpen, onReorder, onN
                   </Row>
                   <Row style={{ marginTop: 8, fontSize: 12, color: C.slate, fontFamily: BODY }}>
                     {live > 0 && <span style={{ color: C.orange, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LiveDot color={C.orange} /> {live} on the clock</span>}
-                    <span>👤 {tech ? tech.display_name : "Unassigned"}</span>
+                    <span>{names.length ? names.join(", ") : "Unassigned"}</span>
                   </Row>
                 </button>
               </div>
