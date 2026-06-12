@@ -22,6 +22,7 @@ export default function App() {
   const [liveCounts, setLiveCounts] = useState({});
   const [activeShiftCount, setActiveShiftCount] = useState(0);
   const [settings, setSettings] = useState(null);
+  const [assignees, setAssignees] = useState({});
 
   async function loadOrders() {
     const { data } = await supabase.from("work_orders").select("*").order("priority");
@@ -30,6 +31,10 @@ export default function App() {
     const counts = {};
     (js || []).forEach((s) => { counts[s.order_id] = (counts[s.order_id] || 0) + 1; });
     setLiveCounts(counts);
+    const { data: asg } = await supabase.from("order_assignees").select("order_id, tech_id");
+    const byOrder = {};
+    (asg || []).forEach((a) => { (byOrder[a.order_id] = byOrder[a.order_id] || []).push(a.tech_id); });
+    setAssignees(byOrder);
     const { count } = await supabase.from("shifts").select("*", { count: "exact", head: true }).is("ended_at", null);
     setActiveShiftCount(count || 0);
   }
@@ -92,9 +97,11 @@ export default function App() {
                 color: view.name === n.key ? "#fff" : "#CFE0EA",
               }}>{n.label}</button>
             ))}
-            <button onClick={() => setView({ name: "new" })} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 6, background: "#fff", color: C.ink, marginLeft: "auto" }}>
-              + New order
-            </button>
+            {mgr && (
+              <button onClick={() => setView({ name: "new" })} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 6, background: "#fff", color: C.ink, marginLeft: "auto" }}>
+                + New order
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -123,7 +130,7 @@ export default function App() {
         ) : view.name === "settings" ? (
           <Settings settings={settings} onSaved={setSettings} onBack={() => setView({ name: "list" })} />
         ) : (
-          <WorkOrderList orders={orders} crew={crew} liveCounts={liveCounts}
+          <WorkOrderList orders={orders} crew={crew} liveCounts={liveCounts} assignees={assignees} canCreate={mgr}
             onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onNew={() => setView({ name: "new" })} />
         )}
       </main>
