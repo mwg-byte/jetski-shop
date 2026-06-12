@@ -27,7 +27,7 @@ export default function Reports({ onBack }) {
 
   useEffect(() => {
     (async () => {
-      const [p, w, h, l, s, t, pa, a] = await Promise.all([
+      const [p, w, h, l, s, t, pa, a, ex] = await Promise.all([
         supabase.from("profiles").select("id, display_name, role, active"),
         supabase.from("work_orders").select("*"),
         supabase.from("hour_entries").select("*"),
@@ -36,17 +36,18 @@ export default function Reports({ onBack }) {
         supabase.from("trips").select("*"),
         supabase.from("parts").select("*"),
         supabase.from("order_assignees").select("order_id, tech_id"),
+        supabase.from("expenses").select("*"),
       ]);
       setData({
         profiles: p.data || [], orders: w.data || [], hours: h.data || [],
-        lake: l.data || [], shifts: s.data || [], trips: t.data || [], parts: pa.data || [], assignees: a.data || [],
+        lake: l.data || [], shifts: s.data || [], trips: t.data || [], parts: pa.data || [], assignees: a.data || [], expenses: ex.data || [],
       });
     })();
   }, []);
 
   const report = useMemo(() => {
     if (!data) return null;
-    const { profiles, orders, hours, lake, shifts, trips, parts, assignees } = data;
+    const { profiles, orders, hours, lake, shifts, trips, parts, assignees, expenses } = data;
     const asgByOrder = {};
     (assignees || []).forEach((a) => { (asgByOrder[a.order_id] = asgByOrder[a.order_id] || []).push(a.tech_id); });
     const nameOf = (id) => profiles.find((x) => x.id === id)?.display_name || "—";
@@ -131,6 +132,11 @@ export default function Reports({ onBack }) {
     const seasonAoa = [["Month", "Intakes"]];
     Object.keys(months).sort().forEach((m) => seasonAoa.push([m, months[m]]));
 
+    const expAoa = [["Date", "Employee", "Amount", "Description"]];
+    (expenses || []).filter((x) => inRange(x.expense_date, range)).sort((a, b) => (a.expense_date < b.expense_date ? 1 : -1))
+      .forEach((x) => expAoa.push([fmtDate(x.expense_date), nameOf(x.tech_id), round2(Number(x.amount)), x.description || ""]));
+    const totalExpenses = round2((expenses || []).reduce((a, x) => a + Number(x.amount), 0));
+
     const closed = orders.filter((o) => o.status === "closed");
     const open = orders.filter((o) => o.status !== "closed");
     const avgTurn = closed.length ? round2(closed.reduce((a, o) => a + daysAtShop(o), 0) / closed.length) : "—";
@@ -144,7 +150,7 @@ export default function Reports({ onBack }) {
       ["Open work orders", open.length], ["Closed work orders", closed.length], ["Total work orders", orders.length],
       ["Avg turnaround (closed, days)", avgTurn], ["Total labor hours (all time)", totalLabor],
       ["Lake tests — passed", passed], ["Lake tests — failed", failed], ["Lake test pass rate", passRate],
-      ["Total mileage (mi, all time)", totalMiles], ["Active crew", profiles.filter((p) => p.active).length],
+      ["Total mileage (mi, all time)", totalMiles], ["Total receipt reimbursements ($, all time)", totalExpenses], ["Active crew", profiles.filter((p) => p.active).length],
     ];
 
     return {
@@ -158,6 +164,7 @@ export default function Reports({ onBack }) {
         { name: "Shifts", aoa: shiftAoa, cols: [20, 11, 9, 9, 8] },
         { name: "Lake tests", aoa: lakeAoa, cols: [11, 26, 20, 9, 9, 30] },
         { name: "Mileage", aoa: mileAoa, cols: [11, 20, 8, 24, 9] },
+        { name: "Reimbursements", aoa: expAoa, cols: [11, 20, 10, 34] },
         { name: "Parts", aoa: partAoa, cols: [26, 22, 6, 12, 24] },
         { name: "Seasonality", aoa: seasonAoa, cols: [12, 10] },
       ],
@@ -195,7 +202,7 @@ export default function Reports({ onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Reports</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Download a multi-sheet Excel workbook: employee hours (shift vs on-skis), each ski's time at the shop, repeat visits, lake tests, mileage, parts, and more.
+        Download a multi-sheet Excel workbook: employee hours (shift vs on-skis), each ski's time at the shop, repeat visits, lake tests, mileage, receipts, parts, and more.
       </p>
 
       <SectionTitle right={
@@ -206,7 +213,7 @@ export default function Reports({ onBack }) {
         </Row>
       }>Snapshot</SectionTitle>
       <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginBottom: 8 }}>
-        Date range applies to the time sheets (employee hours, shifts, lake tests, mileage). Ski, repeat-visit and turnaround sheets always cover all time.
+        Date range applies to the time sheets (employee hours, shifts, lake tests, mileage, receipts). Ski, repeat-visit and turnaround sheets always cover all time.
       </div>
 
       {!report ? (
