@@ -27,7 +27,7 @@ export default function Reports({ onBack }) {
 
   useEffect(() => {
     (async () => {
-      const [p, w, h, l, s, t, pa] = await Promise.all([
+      const [p, w, h, l, s, t, pa, a] = await Promise.all([
         supabase.from("profiles").select("id, display_name, role, active"),
         supabase.from("work_orders").select("*"),
         supabase.from("hour_entries").select("*"),
@@ -35,17 +35,20 @@ export default function Reports({ onBack }) {
         supabase.from("shifts").select("*"),
         supabase.from("trips").select("*"),
         supabase.from("parts").select("*"),
+        supabase.from("order_assignees").select("order_id, tech_id"),
       ]);
       setData({
         profiles: p.data || [], orders: w.data || [], hours: h.data || [],
-        lake: l.data || [], shifts: s.data || [], trips: t.data || [], parts: pa.data || [],
+        lake: l.data || [], shifts: s.data || [], trips: t.data || [], parts: pa.data || [], assignees: a.data || [],
       });
     })();
   }, []);
 
   const report = useMemo(() => {
     if (!data) return null;
-    const { profiles, orders, hours, lake, shifts, trips, parts } = data;
+    const { profiles, orders, hours, lake, shifts, trips, parts, assignees } = data;
+    const asgByOrder = {};
+    (assignees || []).forEach((a) => { (asgByOrder[a.order_id] = asgByOrder[a.order_id] || []).push(a.tech_id); });
     const nameOf = (id) => profiles.find((x) => x.id === id)?.display_name || "—";
     const orderOf = (id) => orders.find((o) => o.id === id);
     const rangeLabel = RANGES.find((r) => r.key === range)?.label || "All time";
@@ -86,7 +89,7 @@ export default function Reports({ onBack }) {
         fmtDate(o.created_at), o.closed_at ? fmtDate(o.closed_at) : "",
         daysAtShop(o), round2(oh.reduce((a, x) => a + Number(x.hours), 0)),
         ol.length, ol.filter((x) => x.result === "passed").length, ol.filter((x) => x.result === "failed").length,
-        o.assigned_to ? nameOf(o.assigned_to) : "",
+        (asgByOrder[o.id] || []).map(nameOf).join(", "),
       ]);
     });
 
