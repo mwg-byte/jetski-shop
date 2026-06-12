@@ -14,12 +14,13 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [media, setMedia] = useState([]);
   const [lakeTests, setLakeTests] = useState([]);
   const [lakeSession, setLakeSession] = useState(null);
+  const [assignees, setAssignees] = useState([]);
   const [tab, setTab] = useState("job");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [, tick] = useState(0);
 
   async function loadAll() {
-    const [o, h, s, p, m, lt, ls] = await Promise.all([
+    const [o, h, s, p, m, lt, ls, oa] = await Promise.all([
       supabase.from("work_orders").select("*").eq("id", orderId).single(),
       supabase.from("hour_entries").select("*").eq("order_id", orderId).order("work_date"),
       supabase.from("job_sessions").select("*").eq("order_id", orderId),
@@ -27,9 +28,11 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       supabase.from("media").select("*").eq("order_id", orderId).order("created_at"),
       supabase.from("lake_tests").select("*").eq("order_id", orderId).order("test_date"),
       supabase.from("lake_sessions").select("*").eq("order_id", orderId).maybeSingle(),
+      supabase.from("order_assignees").select("tech_id").eq("order_id", orderId),
     ]);
     setOrder(o.data); setHours(h.data || []); setSessions(s.data || []); setParts(p.data || []);
     setMedia(m.data || []); setLakeTests(lt.data || []); setLakeSession(ls.data || null);
+    setAssignees((oa.data || []).map((r) => r.tech_id));
   }
   useEffect(() => { loadAll(); }, [orderId]);
 
@@ -41,7 +44,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
-    const patchOrder = async (patch) => {
+  const patchOrder = async (patch) => {
     const full = { ...patch };
     if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
     setOrder({ ...order, ...full });
@@ -94,7 +97,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       </div>
 
       {tab === "job" ? (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId }} />
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr: canDelete }} />
       ) : (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
       )}
@@ -103,7 +106,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 }
 
 /* ================= JOB TAB ================= */
-function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId }) {
+function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "" });
   const [partForm, setPartForm] = useState({ name: "", qty: "1", note: "" });
   const [clockTech, setClockTech] = useState(profile.id);
@@ -201,15 +204,32 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         })}
       </Row>
 
-      <SectionTitle>Assigned technician</SectionTitle>
+      <SectionTitle>Assigned techs</SectionTitle>
       <Row>
-        {crew.map((t) => (
-          <button key={t.id} onClick={() => patchOrder({ assigned_to: order.assigned_to === t.id ? null : t.id })} style={{
-            fontFamily: BODY, fontSize: 14, fontWeight: 600, padding: "6px 14px", borderRadius: 999,
-            background: order.assigned_to === t.id ? C.teal : C.paleTeal, color: order.assigned_to === t.id ? "#fff" : C.teal,
-          }}>{t.display_name}</button>
-        ))}
+        {crew.map((t) => {
+          const on = assignees.includes(t.id);
+          const canToggle = isMgr || t.id === profile.id;
+          return (
+            <button key={t.id} disabled={!canToggle} onClick={async () => {
+              if (!canToggle) return;
+              if (on) {
+                setAssignees(assignees.filter((id) => id !== t.id));
+                await supabase.from("order_assignees").delete().eq("order_id", orderId).eq("tech_id", t.id);
+              } else {
+                setAssignees([...assignees, t.id]);
+                await supabase.from("order_assignees").insert({ order_id: orderId, tech_id: t.id });
+              }
+            }} style={{
+              fontFamily: BODY, fontSize: 14, fontWeight: 600, padding: "6px 14px", borderRadius: 999,
+              background: on ? C.teal : C.paleTeal, color: on ? "#fff" : C.teal,
+              opacity: canToggle ? 1 : (on ? 0.9 : 0.4), cursor: canToggle ? "pointer" : "default",
+            }}>{on ? "✓ " : ""}{t.display_name}{t.id === profile.id ? " (you)" : ""}</button>
+          );
+        })}
       </Row>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>
+        {isMgr ? "Tap to add or remove anyone." : "Tap your own name to join or leave this job. You can't remove a teammate."}
+      </div>
 
       <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{totalHrs} hrs total</span>}>Hour log</SectionTitle>
       {hours.length > 0 && (
@@ -371,3 +391,4 @@ function RunNote({ value, onSave }) {
   const [v, setV] = useState(value || "");
   return <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={() => v !== (value || "") && onSave(v)} placeholder="Notes — cavitation gone, 52 mph…" style={{ flex: 1, minWidth: 160 }} />;
 }
+
