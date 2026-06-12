@@ -3,8 +3,8 @@ import { supabase, C, DISPLAY, BODY, isManager } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, btn, btnSm } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
-const ROLE_LABELS = { owner: "Owner", manager: "Manager", tech: "Tech" };
-const ROLE_COLORS = { owner: "#7C3AED", manager: "#0369A1", tech: "#5B6B76" };
+const ROLE_LABELS = { owner: "Owner", manager: "Manager", tech: "Tech", maintenance: "Maintenance" };
+const ROLE_COLORS = { owner: "#7C3AED", manager: "#0369A1", tech: "#5B6B76", maintenance: "#A16207" };
 
 export default function Crew({ onBack, onCrewChange }) {
   const { profile } = useAuth();
@@ -96,6 +96,7 @@ export default function Crew({ onBack, onCrewChange }) {
                   <Label>Role</Label>
                   <Select value={p.role} onChange={(e) => setRole(p, e.target.value)} style={{ width: 140 }}>
                     <option value="tech">Tech</option>
+                    <option value="maintenance">Maintenance</option>
                     <option value="manager">Manager</option>
                     <option value="owner">Owner</option>
                   </Select>
