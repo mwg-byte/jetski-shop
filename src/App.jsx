@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase, C, DISPLAY, BODY, isManager } from "./lib/supabase";
 import { useAuth } from "./AuthContext";
 import { Row } from "./lib/ui";
-import { WorkOrderList, NewOrderForm } from "./views/WorkOrders";
+import { WorkOrderList, NewOrderForm, MaintenanceForm } from "./views/WorkOrders";
 import OrderDetail from "./views/OrderDetail";
 import ShiftClock from "./views/ShiftClock";
 import LakeClock from "./views/LakeClock";
@@ -11,11 +11,13 @@ import Mileage from "./views/Mileage";
 import Crew from "./views/Crew";
 import Payroll from "./views/Payroll";
 import Reports from "./views/Reports";
+import Reimbursement from "./views/Reimbursement";
 import Settings from "./views/Settings";
 
 export default function App() {
   const { profile } = useAuth();
   const mgr = isManager(profile.role);
+  const canMaint = ["owner", "manager", "maintenance"].includes(profile.role);
   const [view, setView] = useState({ name: "list" });
   const [orders, setOrders] = useState([]);
   const [crew, setCrew] = useState([]);
@@ -64,6 +66,7 @@ export default function App() {
     { key: "myhours", label: "My hours", show: true },
     { key: "laketest", label: "Lake test", show: true },
     { key: "mileage", label: "Mileage", show: true },
+    { key: "reimbursement", label: "Reimbursement", show: true },
     { key: "payroll", label: "Payroll", show: mgr },
     { key: "reports", label: "Reports", show: mgr },
     { key: "crew", label: "Crew", show: mgr },
@@ -97,11 +100,18 @@ export default function App() {
                 color: view.name === n.key ? "#fff" : "#CFE0EA",
               }}>{n.label}</button>
             ))}
-            {mgr && (
-              <button onClick={() => setView({ name: "new" })} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 6, background: "#fff", color: C.ink, marginLeft: "auto" }}>
-                + New order
-              </button>
-            )}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              {canMaint && (
+                <button onClick={() => setView({ name: "newmaint" })} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 6, background: "#A16207", color: "#fff" }}>
+                  + Maintenance task
+                </button>
+              )}
+              {mgr && (
+                <button onClick={() => setView({ name: "new" })} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 6, background: "#fff", color: C.ink }}>
+                  + New order
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -110,6 +120,9 @@ export default function App() {
         {view.name === "new" ? (
           <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
+        ) : view.name === "newmaint" ? (
+          <MaintenanceForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
+            onDone={(o) => { loadOrders(); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "detail" ? (
           <OrderDetail orderId={view.id} crew={crew} canDelete={mgr}
             onBack={() => { loadOrders(); setView({ name: "list" }); }} />
@@ -121,6 +134,8 @@ export default function App() {
           <LakeClock crew={crew} orders={orders} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "mileage" ? (
           <Mileage crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "reimbursement" ? (
+          <Reimbursement crew={crew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "payroll" ? (
           <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "reports" ? (
