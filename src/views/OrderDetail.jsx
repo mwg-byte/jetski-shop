@@ -81,11 +81,14 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
         </div>
         <StatusChip status={order.status} big />
       </Row>
+      {order.kind === "maintenance" && (
+        <span style={{ display: "inline-block", marginTop: 8, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: "#A162071A", color: "#A16207" }}>Maintenance task</span>
+      )}
       <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `2px solid ${C.line}` }}>
-        {[{ key: "job", label: "Job" }, { key: "lake", label: `Lake testing${lakeTests.length ? ` (${lakeTests.length})` : ""}` }].map((t) => (
+        {(order.kind === "maintenance" ? [{ key: "job", label: "Job" }] : [{ key: "job", label: "Job" }, { key: "lake", label: `Lake testing${lakeTests.length ? ` (${lakeTests.length})` : ""}` }]).map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
             padding: "8px 14px", borderRadius: "6px 6px 0 0",
@@ -96,7 +99,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
         ))}
       </div>
 
-      {tab === "job" ? (
+      {tab === "job" || order.kind === "maintenance" ? (
         <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr: canDelete }} />
       ) : (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
@@ -391,4 +394,3 @@ function RunNote({ value, onSave }) {
   const [v, setV] = useState(value || "");
   return <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={() => v !== (value || "") && onSave(v)} placeholder="Notes — cavitation gone, 52 mph…" style={{ flex: 1, minWidth: 160 }} />;
 }
-
