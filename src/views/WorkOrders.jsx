@@ -57,7 +57,11 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
                   <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <span style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink }}>{o.customer_name}</span>
-                      <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}</span>
+                      {o.kind === "maintenance" ? (
+                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 999, background: "#A162071A", color: "#A16207", marginLeft: 8 }}>Maintenance</span>
+                      ) : (
+                        <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}</span>
+                      )}
                       <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2 }}>{o.issue}</div>
                     </div>
                     <StatusChip status={o.status} />
@@ -106,6 +110,35 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
       {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{err}</div>}
       <Row style={{ marginTop: 16 }}>
         <button disabled={!f.customer_name.trim() || !f.issue.trim()} onClick={create} style={{ ...btn(C.orange), opacity: !f.customer_name.trim() || !f.issue.trim() ? 0.4 : 1 }}>Create work order</button>
+        <button onClick={onCancel} style={{ fontSize: 14, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+      </Row>
+    </Card>
+  );
+}
+
+export function MaintenanceForm({ onDone, onCancel, nextPriority }) {
+  const [f, setF] = useState({ title: "", details: "" });
+  const [err, setErr] = useState("");
+
+  async function create() {
+    const { data, error } = await supabase.from("work_orders")
+      .insert({ kind: "maintenance", customer_name: f.title.trim(), issue: f.details.trim() || f.title.trim(), priority: nextPriority })
+      .select().single();
+    if (error) setErr(error.message);
+    else onDone(data);
+  }
+
+  return (
+    <Card>
+      <h3 style={{ fontFamily: DISPLAY, fontSize: 22, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 12 }}>New maintenance task</h3>
+      <div><Label>Task *</Label><TextInput value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Morning trash run" /></div>
+      <div style={{ marginTop: 12 }}>
+        <Label>What are you doing?</Label>
+        <textarea value={f.details} onChange={(e) => setF({ ...f, details: e.target.value })} rows={3} placeholder="Sweeping bays, hauling trash, dump run…" style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} />
+      </div>
+      {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{err}</div>}
+      <Row style={{ marginTop: 16 }}>
+        <button disabled={!f.title.trim()} onClick={create} style={{ ...btn(C.orange), opacity: !f.title.trim() ? 0.4 : 1 }}>Start task</button>
         <button onClick={onCancel} style={{ fontSize: 14, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
       </Row>
     </Card>
