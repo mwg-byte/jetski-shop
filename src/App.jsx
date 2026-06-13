@@ -65,7 +65,7 @@ export default function App() {
 
   const navItems = [
     { key: "list", label: "Work orders", show: true },
-    { key: "maintenance", label: "Maintenance", show: profile.role === "maintenance" },
+    { key: "maintenance", label: "Maintenance", show: canMaint },
     { key: "timeclock", label: "Time clock", show: true },
     { key: "myhours", label: "My hours", show: true },
     { key: "laketest", label: "Lake test", show: true },
@@ -127,7 +127,7 @@ export default function App() {
           <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "newmaint" ? (
-          <MaintenanceForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
+          <MaintenanceForm crew={crew} nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { loadOrders(); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "detail" ? (
           <OrderDetail orderId={view.id} crew={crew} canDelete={mgr}
