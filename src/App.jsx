@@ -14,6 +14,7 @@ import Reports from "./views/Reports";
 import Reimbursement from "./views/Reimbursement";
 import ItemRequests from "./views/ItemRequests";
 import Inventory from "./views/Inventory";
+import MaintenanceTab from "./views/MaintenanceTab";
 import Settings from "./views/Settings";
 
 export default function App() {
@@ -64,6 +65,7 @@ export default function App() {
 
   const navItems = [
     { key: "list", label: "Work orders", show: true },
+    { key: "maintenance", label: "Maintenance", show: profile.role === "maintenance" },
     { key: "timeclock", label: "Time clock", show: true },
     { key: "myhours", label: "My hours", show: true },
     { key: "laketest", label: "Lake test", show: true },
@@ -144,6 +146,9 @@ export default function App() {
           <ItemRequests crew={crew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "inventory" ? (
           <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "maintenance" ? (
+          <MaintenanceTab orders={orders} crew={crew} assignees={assignees} liveCounts={liveCounts}
+            onOpen={(id) => setView({ name: "detail", id })} onBack={() => setView({ name: "list" })} />
         ) : view.name === "payroll" ? (
           <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "reports" ? (
