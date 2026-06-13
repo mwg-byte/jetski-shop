@@ -12,6 +12,8 @@ import Crew from "./views/Crew";
 import Payroll from "./views/Payroll";
 import Reports from "./views/Reports";
 import Reimbursement from "./views/Reimbursement";
+import ItemRequests from "./views/ItemRequests";
+import Inventory from "./views/Inventory";
 import Settings from "./views/Settings";
 
 export default function App() {
@@ -67,6 +69,8 @@ export default function App() {
     { key: "laketest", label: "Lake test", show: true },
     { key: "mileage", label: "Mileage", show: true },
     { key: "reimbursement", label: "Reimbursement", show: true },
+    { key: "items", label: "Item requests", show: true },
+    { key: "inventory", label: "Inventory", show: mgr },
     { key: "payroll", label: "Payroll", show: mgr },
     { key: "reports", label: "Reports", show: mgr },
     { key: "crew", label: "Crew", show: mgr },
@@ -136,6 +140,10 @@ export default function App() {
           <Mileage crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "reimbursement" ? (
           <Reimbursement crew={crew} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "items" ? (
+          <ItemRequests crew={crew} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "inventory" ? (
+          <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "payroll" ? (
           <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "reports" ? (
