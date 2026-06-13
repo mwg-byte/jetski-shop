@@ -11,6 +11,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [hours, setHours] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [parts, setParts] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [media, setMedia] = useState([]);
   const [lakeTests, setLakeTests] = useState([]);
   const [lakeSession, setLakeSession] = useState(null);
@@ -20,7 +21,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [, tick] = useState(0);
 
   async function loadAll() {
-    const [o, h, s, p, m, lt, ls, oa] = await Promise.all([
+    const [o, h, s, p, m, lt, ls, oa, no] = await Promise.all([
       supabase.from("work_orders").select("*").eq("id", orderId).single(),
       supabase.from("hour_entries").select("*").eq("order_id", orderId).order("work_date"),
       supabase.from("job_sessions").select("*").eq("order_id", orderId),
@@ -29,10 +30,12 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       supabase.from("lake_tests").select("*").eq("order_id", orderId).order("test_date"),
       supabase.from("lake_sessions").select("*").eq("order_id", orderId).maybeSingle(),
       supabase.from("order_assignees").select("tech_id").eq("order_id", orderId),
+      supabase.from("order_notes").select("*").eq("order_id", orderId).order("created_at", { ascending: false }),
     ]);
     setOrder(o.data); setHours(h.data || []); setSessions(s.data || []); setParts(p.data || []);
     setMedia(m.data || []); setLakeTests(lt.data || []); setLakeSession(ls.data || null);
     setAssignees((oa.data || []).map((r) => r.tech_id));
+    setNotes(no.data || []);
   }
   useEffect(() => { loadAll(); }, [orderId]);
 
@@ -100,7 +103,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       </div>
 
       {tab === "job" || order.kind === "maintenance" ? (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr: canDelete }} />
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr: canDelete }} />
       ) : (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
       )}
@@ -109,9 +112,11 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 }
 
 /* ================= JOB TAB ================= */
-function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
+function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "" });
   const [partForm, setPartForm] = useState({ name: "", qty: "1", note: "" });
+  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", note: "" });
+  const [noteText, setNoteText] = useState("");
   const [clockTech, setClockTech] = useState(profile.id);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -141,8 +146,23 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   async function addPart() {
     if (!partForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, note: partForm.note.trim() }).select().single();
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, note: partForm.note.trim(), kind: "request" }).select().single();
     if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", note: "" }); }
+  }
+  async function addTaken() {
+    if (!takenForm.name.trim()) return;
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, note: takenForm.note.trim(), kind: "taken" }).select().single();
+    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", note: "" }); }
+  }
+  async function addNote() {
+    const body = noteText.trim();
+    if (!body) return;
+    const { data } = await supabase.from("order_notes").insert({ order_id: orderId, author_id: profile.id, body }).select().single();
+    if (data) { setNotes([data, ...notes]); setNoteText(""); }
+  }
+  async function removeNote(n) {
+    setNotes(notes.filter((x) => x.id !== n.id));
+    await supabase.from("order_notes").delete().eq("id", n.id);
   }
   async function cyclePart(p) {
     const status = PART_STATUSES[(PART_STATUSES.indexOf(p.status) + 1) % PART_STATUSES.length];
@@ -170,6 +190,9 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
     await supabase.storage.from("job-media").remove([m.path]);
     await supabase.from("media").delete().eq("id", m.id);
   }
+
+  const requests = parts.filter((p) => (p.kind || "request") === "request");
+  const taken = parts.filter((p) => p.kind === "taken");
 
   return (
     <>
@@ -234,6 +257,28 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         {isMgr ? "Tap to add or remove anyone." : "Tap your own name to join or leave this job. You can't remove a teammate."}
       </div>
 
+      <SectionTitle>Notes</SectionTitle>
+      {notes.length > 0 && (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {notes.map((n) => (
+            <div key={n.id} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <Row style={{ justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 600, color: C.ink, fontSize: 13 }}>{nameOf(crew, n.author_id)}</span>
+                <Row style={{ gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(n.created_at)}</span>
+                  {(isMgr || n.author_id === profile.id) && <button onClick={() => removeNote(n)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                </Row>
+              </Row>
+              <div style={{ fontSize: 14, color: C.ink, marginTop: 2, whiteSpace: "pre-wrap" }}>{n.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row>
+        <TextInput placeholder="Add a note — found cracked impeller, customer approved…" value={noteText} onChange={(e) => setNoteText(e.target.value)} style={{ flex: 1, minWidth: 180 }} />
+        <button onClick={addNote} style={btn(C.teal)}>Add note</button>
+      </Row>
+
       <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{totalHrs} hrs total</span>}>Hour log</SectionTitle>
       {hours.length > 0 && (
         <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
@@ -259,9 +304,9 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       </Row>
 
       <SectionTitle>Parts requests</SectionTitle>
-      {parts.length > 0 && (
+      {requests.length > 0 && (
         <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
-          {parts.map((p) => (
+          {requests.map((p) => (
             <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
               <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
               <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
@@ -276,6 +321,26 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="number" min="1" value={partForm.qty} onChange={(e) => setPartForm({ ...partForm, qty: e.target.value })} style={{ width: 70 }} />
         <TextInput placeholder="Note / supplier" value={partForm.note} onChange={(e) => setPartForm({ ...partForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
         <button onClick={addPart} style={btn(C.teal)}>Request part</button>
+      </Row>
+
+      <SectionTitle>Parts taken</SectionTitle>
+      {taken.length > 0 && (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {taken.map((p) => (
+            <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+              <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
+              <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
+              <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+            </Row>
+          ))}
+        </div>
+      )}
+      <Row>
+        <TextInput placeholder="Part pulled — e.g. impeller, oil filter" value={takenForm.name} onChange={(e) => setTakenForm({ ...takenForm, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
+        <TextInput type="number" min="1" value={takenForm.qty} onChange={(e) => setTakenForm({ ...takenForm, qty: e.target.value })} style={{ width: 70 }} />
+        <TextInput placeholder="Note" value={takenForm.note} onChange={(e) => setTakenForm({ ...takenForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
 
       <SectionTitle right={
