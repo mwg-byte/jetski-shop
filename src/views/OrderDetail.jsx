@@ -117,6 +117,8 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const [partForm, setPartForm] = useState({ name: "", qty: "1", note: "" });
   const [takenForm, setTakenForm] = useState({ name: "", qty: "1", note: "" });
   const [noteText, setNoteText] = useState("");
+  const [editHourId, setEditHourId] = useState(null);
+  const [editHourVals, setEditHourVals] = useState({ hours: "", work_date: "" });
   const [clockTech, setClockTech] = useState(profile.id);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -163,6 +165,18 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   async function removeNote(n) {
     setNotes(notes.filter((x) => x.id !== n.id));
     await supabase.from("order_notes").delete().eq("id", n.id);
+  }
+  function startEditHour(h) {
+    setEditHourId(h.id);
+    setEditHourVals({ hours: String(h.hours), work_date: h.work_date });
+  }
+  async function saveHour(h) {
+    const val = Number(editHourVals.hours);
+    if (!val || val <= 0) return;
+    const patch = { hours: val, work_date: editHourVals.work_date };
+    setHours(hours.map((x) => (x.id === h.id ? { ...x, ...patch } : x)));
+    setEditHourId(null);
+    await supabase.from("hour_entries").update(patch).eq("id", h.id);
   }
   async function cyclePart(p) {
     const status = PART_STATUSES[(PART_STATUSES.indexOf(p.status) + 1) % PART_STATUSES.length];
@@ -283,13 +297,24 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       {hours.length > 0 && (
         <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
           {hours.map((h) => (
-            <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
-              <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
-              <span style={{ color: C.slate }}>{fmtDate(h.work_date)}</span>
-              <span style={{ fontWeight: 700, color: h.clocked ? C.orange : C.teal }}>{h.hours} hrs</span>
-              <span style={{ flex: 1, color: C.slate }}>{h.note}</span>
-              <button onClick={async () => { setHours(hours.filter((x) => x.id !== h.id)); await supabase.from("hour_entries").delete().eq("id", h.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
-            </Row>
+            editHourId === h.id ? (
+              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8, background: "#F6F8F9" }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
+                <TextInput type="date" value={editHourVals.work_date} onChange={(e) => setEditHourVals({ ...editHourVals, work_date: e.target.value })} style={{ width: "auto" }} />
+                <TextInput type="number" step="0.25" min="0" value={editHourVals.hours} onChange={(e) => setEditHourVals({ ...editHourVals, hours: e.target.value })} style={{ width: 90 }} />
+                <button onClick={() => saveHour(h)} style={btnSm(C.teal)}>Save</button>
+                <button onClick={() => setEditHourId(null)} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+              </Row>
+            ) : (
+              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
+                <span style={{ color: C.slate }}>{fmtDate(h.work_date)}</span>
+                <span style={{ fontWeight: 700, color: h.clocked ? C.orange : C.teal }}>{h.hours} hrs</span>
+                <span style={{ flex: 1, color: C.slate }}>{h.note}</span>
+                {isMgr && <button onClick={() => startEditHour(h)} style={{ fontSize: 12, color: C.teal }}>edit</button>}
+                <button onClick={async () => { setHours(hours.filter((x) => x.id !== h.id)); await supabase.from("hour_entries").delete().eq("id", h.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+              </Row>
+            )
           ))}
         </div>
       )}
