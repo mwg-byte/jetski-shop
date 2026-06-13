@@ -48,7 +48,6 @@ export default function Payroll({ crew, settings, onBack }) {
     });
   }, [start, periodLen]);
 
-  // build per-tech, per-week hours so OT is computed weekly even in a 2-week period
   const rows = crew.map((t) => {
     let regHrs = 0, otHrs = 0;
     const weeks = periodLen === 14 ? [start, addDays(start, 7)] : [start];
@@ -134,4 +133,37 @@ export default function Payroll({ crew, settings, onBack }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} style={{ borderTop: `1px solid ${C.line}`, textAlign: "right" }}>
-                  <td style={{ padding: "8px 10px", textAlign: "left", fontWeight:
+                  <td style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: C.ink }}>{r.name}</td>
+                  <td style={{ padding: "8px 10px" }}>{r.regHrs}</td>
+                  <td style={{ padding: "8px 10px", color: r.otHrs > 0 ? C.orange : C.slate }}>{r.otHrs}</td>
+                  <td style={{ padding: "8px 10px", color: r.rate ? C.ink : C.red }}>{r.rate ? money(r.rate) : "set rate"}</td>
+                  <td style={{ padding: "8px 10px" }}>{money(r.regPay)}</td>
+                  <td style={{ padding: "8px 10px" }}>{money(r.otPay)}</td>
+                  <td style={{ padding: "8px 10px" }}>{r.miles}</td>
+                  <td style={{ padding: "8px 10px" }}>{money(r.mileagePay)}</td>
+                  <td style={{ padding: "8px 10px" }}>{money(r.expense)}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, color: C.green }}>{money(r.gross)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: `2px solid ${C.line}`, textAlign: "right", fontWeight: 700, color: C.ink }}>
+                <td style={{ padding: "8px 10px", textAlign: "left" }}>Totals</td>
+                <td style={{ padding: "8px 10px" }}>{totals.regHrs}</td>
+                <td style={{ padding: "8px 10px" }}>{totals.otHrs}</td>
+                <td /><td /><td />
+                <td style={{ padding: "8px 10px" }}>{totals.miles}</td>
+                <td />
+                <td style={{ padding: "8px 10px" }}>{money(totals.expense)}</td>
+                <td style={{ padding: "8px 10px", color: C.green }}>{money(totals.gross)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 12 }}>
+        This is a gross-pay worksheet for your records and payroll provider — it doesn't calculate tax withholding. Set each person's rate in the Crew screen; overtime rules are in Settings.
+      </p>
+    </Card>
+  );
+}
