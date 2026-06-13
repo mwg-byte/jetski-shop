@@ -116,16 +116,17 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
   );
 }
 
-export function MaintenanceForm({ onDone, onCancel, nextPriority }) {
-  const [f, setF] = useState({ title: "", details: "" });
+export function MaintenanceForm({ crew = [], onDone, onCancel, nextPriority }) {
+  const [f, setF] = useState({ title: "", details: "", assignee: "" });
   const [err, setErr] = useState("");
 
   async function create() {
     const { data, error } = await supabase.from("work_orders")
       .insert({ kind: "maintenance", customer_name: f.title.trim(), issue: f.details.trim() || f.title.trim(), priority: nextPriority })
       .select().single();
-    if (error) setErr(error.message);
-    else onDone(data);
+    if (error) { setErr(error.message); return; }
+    if (f.assignee) await supabase.from("order_assignees").insert({ order_id: data.id, tech_id: f.assignee });
+    onDone(data);
   }
 
   return (
@@ -133,8 +134,15 @@ export function MaintenanceForm({ onDone, onCancel, nextPriority }) {
       <h3 style={{ fontFamily: DISPLAY, fontSize: 22, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 12 }}>New maintenance task</h3>
       <div><Label>Task *</Label><TextInput value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Morning trash run" /></div>
       <div style={{ marginTop: 12 }}>
-        <Label>What are you doing?</Label>
+        <Label>Details</Label>
         <textarea value={f.details} onChange={(e) => setF({ ...f, details: e.target.value })} rows={3} placeholder="Sweeping bays, hauling trash, dump run…" style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <Label>Assign to</Label>
+        <Select value={f.assignee} onChange={(e) => setF({ ...f, assignee: e.target.value })} style={{ width: "100%", maxWidth: 280 }}>
+          <option value="">— Assign later —</option>
+          {crew.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+        </Select>
       </div>
       {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{err}</div>}
       <Row style={{ marginTop: 16 }}>
