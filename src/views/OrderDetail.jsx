@@ -17,7 +17,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [lakeSession, setLakeSession] = useState(null);
   const [assignees, setAssignees] = useState([]);
   const [tab, setTab] = useState("job");
-    const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [detForm, setDetForm] = useState({});
   const [, tick] = useState(0);
@@ -49,7 +49,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
-    const patchOrder = async (patch) => {
+  const patchOrder = async (patch) => {
     const full = { ...patch };
     if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
     setOrder({ ...order, ...full });
@@ -119,7 +119,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
           <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Opens Messages with a pre-written note to {order.customer_phone}. Review it, then hit send.</div>
         </div>
       )}
-      <      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
+      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
 
       {canDelete && (editingDetails ? (
         <div style={{ marginTop: 12, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
