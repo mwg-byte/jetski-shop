@@ -282,4 +282,215 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
 
       <SectionTitle>Notes</SectionTitle>
       {notes.length > 0 && (
-        <div style
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {notes.map((n) => (
+            <div key={n.id} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <Row style={{ justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 600, color: C.ink, fontSize: 13 }}>{nameOf(crew, n.author_id)}</span>
+                <Row style={{ gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(n.created_at)}</span>
+                  {(isMgr || n.author_id === profile.id) && <button onClick={() => removeNote(n)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                </Row>
+              </Row>
+              <div style={{ fontSize: 14, color: C.ink, marginTop: 2, whiteSpace: "pre-wrap" }}>{n.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row>
+        <TextInput placeholder="Add a note — found cracked impeller, customer approved…" value={noteText} onChange={(e) => setNoteText(e.target.value)} style={{ flex: 1, minWidth: 180 }} />
+        <button onClick={addNote} style={btn(C.teal)}>Add note</button>
+      </Row>
+
+      <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{totalHrs} hrs total</span>}>Hour log</SectionTitle>
+      {hours.length > 0 && (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {hours.map((h) => (
+            editHourId === h.id ? (
+              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8, background: "#F6F8F9" }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
+                <TextInput type="date" value={editHourVals.work_date} onChange={(e) => setEditHourVals({ ...editHourVals, work_date: e.target.value })} style={{ width: "auto" }} />
+                <TextInput type="number" step="0.25" min="0" value={editHourVals.hours} onChange={(e) => setEditHourVals({ ...editHourVals, hours: e.target.value })} style={{ width: 90 }} />
+                <button onClick={() => saveHour(h)} style={btnSm(C.teal)}>Save</button>
+                <button onClick={() => setEditHourId(null)} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+              </Row>
+            ) : (
+              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
+                <span style={{ color: C.slate }}>{fmtDate(h.work_date)}</span>
+                <span style={{ fontWeight: 700, color: h.clocked ? C.orange : C.teal }}>{h.hours} hrs</span>
+                <span style={{ flex: 1, color: C.slate }}>{h.note}</span>
+                {isMgr && <button onClick={() => startEditHour(h)} style={{ fontSize: 12, color: C.teal }}>edit</button>}
+                <button onClick={async () => { setHours(hours.filter((x) => x.id !== h.id)); await supabase.from("hour_entries").delete().eq("id", h.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+              </Row>
+            )
+          ))}
+        </div>
+      )}
+      <Row>
+        <Select value={hourForm.tech_id} onChange={(e) => setHourForm({ ...hourForm, tech_id: e.target.value })} style={{ width: "auto" }}>
+          {crew.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+        </Select>
+        <TextInput type="date" value={hourForm.work_date} onChange={(e) => setHourForm({ ...hourForm, work_date: e.target.value })} style={{ width: "auto" }} />
+        <TextInput type="number" step="0.25" min="0" placeholder="1.5" value={hourForm.hours} onChange={(e) => setHourForm({ ...hourForm, hours: e.target.value })} style={{ width: 80 }} />
+        <TextInput placeholder="Note" value={hourForm.note} onChange={(e) => setHourForm({ ...hourForm, note: e.target.value })} style={{ flex: 1, minWidth: 140 }} />
+        <button onClick={addHours} style={btn(C.teal)}>Log hours</button>
+      </Row>
+
+      <SectionTitle>Parts requests</SectionTitle>
+      {requests.length > 0 && (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {requests.map((p) => (
+            <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+              <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
+              <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
+              <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+            </Row>
+          ))}
+        </div>
+      )}
+      <Row>
+        <TextInput placeholder="Part — Starter relay 278003012" value={partForm.name} onChange={(e) => setPartForm({ ...partForm, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
+        <TextInput type="number" min="1" value={partForm.qty} onChange={(e) => setPartForm({ ...partForm, qty: e.target.value })} style={{ width: 70 }} />
+        <TextInput placeholder="Note / supplier" value={partForm.note} onChange={(e) => setPartForm({ ...partForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        <button onClick={addPart} style={btn(C.teal)}>Request part</button>
+      </Row>
+
+      <SectionTitle>Parts taken</SectionTitle>
+      {taken.length > 0 && (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {taken.map((p) => (
+            <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+              <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
+              <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
+              <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+            </Row>
+          ))}
+        </div>
+      )}
+      <Row>
+        <TextInput placeholder="Part pulled — e.g. impeller, oil filter" value={takenForm.name} onChange={(e) => setTakenForm({ ...takenForm, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
+        <TextInput type="number" min="1" value={takenForm.qty} onChange={(e) => setTakenForm({ ...takenForm, qty: e.target.value })} style={{ width: 70 }} />
+        <TextInput placeholder="Note" value={takenForm.note} onChange={(e) => setTakenForm({ ...takenForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
+      </Row>
+
+      <SectionTitle>Photos & video</SectionTitle>
+      <label style={{ ...btn(C.orange), display: "inline-block", marginBottom: 10, cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+        {uploading ? "Uploading…" : "+ Add photos / video"}
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }} onChange={uploadFiles} />
+      </label>
+      {media.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No media yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+          {media.map((m) => (
+            <div key={m.id} style={{ position: "relative" }}>
+              <div onClick={() => setLightbox(m)} style={{ height: 96, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}`, background: C.ink, cursor: "pointer" }}>
+                {m.kind === "video"
+                  ? <video src={publicUrl(m.path)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : <img src={publicUrl(m.path)} alt={m.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+              </div>
+              <button onClick={() => removeMedia(m)} style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 999, fontSize: 11, color: "#fff", background: C.red }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(8,20,30,0.88)" }}>
+          {lightbox.kind === "video"
+            ? <video src={publicUrl(lightbox.path)} controls autoPlay onClick={(e) => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8 }} />
+            : <img src={publicUrl(lightbox.path)} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8 }} />}
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ================= LAKE TAB ================= */
+function LakeTab({ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }) {
+  const [tech, setTech] = useState(profile.id);
+  const [manual, setManual] = useState({ tech_id: profile.id, minutes: "", note: "" });
+
+  async function startTest() {
+    const { data, error } = await supabase.from("lake_sessions").insert({ order_id: orderId, tech_id: tech }).select().single();
+    if (!error) setLakeSession(data);
+  }
+  async function stopTest() {
+    const seconds = Math.round((Date.now() - new Date(lakeSession.started_at).getTime()) / 1000);
+    const { data } = await supabase.from("lake_tests").insert({ order_id: orderId, tech_id: lakeSession.tech_id, seconds }).select().single();
+    await supabase.from("lake_sessions").delete().eq("order_id", orderId);
+    setLakeSession(null);
+    if (data) setLakeTests([...lakeTests, data]);
+  }
+  async function addManual() {
+    const min = Number(manual.minutes);
+    if (!min || min <= 0) return;
+    const { data } = await supabase.from("lake_tests").insert({ order_id: orderId, tech_id: manual.tech_id, seconds: min * 60, note: manual.note.trim() }).select().single();
+    if (data) { setLakeTests([...lakeTests, data]); setManual({ ...manual, minutes: "", note: "" }); }
+  }
+  async function patchRun(id, patch) {
+    setLakeTests(lakeTests.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    await supabase.from("lake_tests").update(patch).eq("id", id);
+  }
+  const totalHrs = round2((lakeTests.reduce((s, r) => s + r.seconds, 0) + (lakeSession ? (Date.now() - new Date(lakeSession.started_at).getTime()) / 1000 : 0)) / 3600);
+
+  return (
+    <>
+      <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{totalHrs} hrs on the water</span>}>Lake test timer</SectionTitle>
+      <div style={{ borderRadius: 6, padding: 12, background: C.water }}>
+        {lakeSession ? (
+          <Row>
+            <LiveDot color="#38BDF8" />
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#fff", fontFamily: BODY }}>{nameOf(crew, lakeSession.tech_id)} is on the water</span>
+            <span style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: "#fff", letterSpacing: "0.05em" }}>{fmtElapsed(Date.now() - new Date(lakeSession.started_at).getTime())}</span>
+            <button onClick={stopTest} style={{ ...btnSm(C.orange), marginLeft: "auto" }}>■ End test run</button>
+          </Row>
+        ) : (
+          <Row>
+            <Select value={tech} onChange={(e) => setTech(e.target.value)} style={{ flex: 1, minWidth: 140 }}>
+              {crew.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+            </Select>
+            <button onClick={startTest} style={btn("#fff", C.water)}>▶ Start test run</button>
+          </Row>
+        )}
+      </div>
+
+      <SectionTitle>Test runs</SectionTitle>
+      {lakeTests.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No test runs yet.</div>
+      ) : (
+        <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
+          {lakeTests.map((r) => (
+            <Row key={r.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, r.tech_id)}</span>
+              <span style={{ color: C.slate }}>{fmtDate(r.test_date)}</span>
+              <span style={{ fontWeight: 700, color: C.teal }}>{fmtElapsed(r.seconds * 1000)}</span>
+              <button onClick={() => patchRun(r.id, { result: TEST_RESULTS[(TEST_RESULTS.indexOf(r.result) + 1) % TEST_RESULTS.length] })}
+                style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", padding: "2px 8px", borderRadius: 999, background: TEST_COLORS[r.result] + "1A", color: TEST_COLORS[r.result] }}>
+                {r.result}
+              </button>
+              <RunNote value={r.note} onSave={(note) => patchRun(r.id, { note })} />
+              <button onClick={async () => { setLakeTests(lakeTests.filter((x) => x.id !== r.id)); await supabase.from("lake_tests").delete().eq("id", r.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+            </Row>
+          ))}
+        </div>
+      )}
+      <Row>
+        <Select value={manual.tech_id} onChange={(e) => setManual({ ...manual, tech_id: e.target.value })} style={{ width: "auto" }}>
+          {crew.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+        </Select>
+        <TextInput type="number" min="1" placeholder="Minutes" value={manual.minutes} onChange={(e) => setManual({ ...manual, minutes: e.target.value })} style={{ width: 100 }} />
+        <TextInput placeholder="Note" value={manual.note} onChange={(e) => setManual({ ...manual, note: e.target.value })} style={{ flex: 1, minWidth: 140 }} />
+        <button onClick={addManual} style={btn(C.teal)}>Add run</button>
+      </Row>
+    </>
+  );
+}
+
+function RunNote({ value, onSave }) {
+  const [v, setV] = useState(value || "");
+  return <TextInput value={v} onChange={(e) => setV(e.target.value)} onBlur={() => v !== (value || "") && onSave(v)} placeholder="Notes — cavitation gone, 52 mph…" style={{ flex: 1, minWidth: 160 }} />;
+}
