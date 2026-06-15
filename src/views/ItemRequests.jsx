@@ -1,19 +1,33 @@
 import { useState, useEffect } from "react";
-import { supabase, C, DISPLAY, BODY, fmtDate } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, fmtDate, PART_STATUSES, PART_COLORS } from "../lib/supabase";
 import { Card, Row, TextInput, SectionTitle, btn } from "../lib/ui";
 import { useAuth } from "../AuthContext";
+
+const skiLabel = (o) => {
+  if (!o) return "Unknown order";
+  const ski = [o.year, o.make, o.model].filter(Boolean).join(" ");
+  return `${o.customer_name}${ski ? " — " + ski : ""}`;
+};
 
 export default function ItemRequests({ crew, onBack }) {
   const { profile } = useAuth();
   const [items, setItems] = useState([]);
+  const [reqs, setReqs] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [form, setForm] = useState({ name: "", qty: "1", note: "" });
   const [showDone, setShowDone] = useState(false);
+  const [showRecv, setShowRecv] = useState(false);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
+  const orderOf = (id) => orders.find((o) => o.id === id);
 
   async function load() {
-    const { data } = await supabase.from("item_requests").select("*").order("created_at", { ascending: false });
-    setItems(data || []);
+    const [{ data: ir }, { data: pr }, { data: wo }] = await Promise.all([
+      supabase.from("item_requests").select("*").order("created_at", { ascending: false }),
+      supabase.from("parts").select("*").eq("kind", "request").order("created_at", { ascending: false }),
+      supabase.from("work_orders").select("id, customer_name, make, model, year"),
+    ]);
+    setItems(ir || []); setReqs(pr || []); setOrders(wo || []);
   }
   useEffect(() => { load(); }, []);
 
@@ -33,9 +47,16 @@ export default function ItemRequests({ crew, onBack }) {
     setItems(items.filter((x) => x.id !== it.id));
     await supabase.from("item_requests").delete().eq("id", it.id);
   }
+  async function cycleReq(p) {
+    const status = PART_STATUSES[(PART_STATUSES.indexOf(p.status) + 1) % PART_STATUSES.length];
+    setReqs(reqs.map((x) => (x.id === p.id ? { ...x, status } : x)));
+    await supabase.from("parts").update({ status }).eq("id", p.id);
+  }
 
   const open = items.filter((x) => !x.purchased);
   const done = items.filter((x) => x.purchased);
+  const openReqs = reqs.filter((p) => p.status !== "received");
+  const recvReqs = reqs.filter((p) => p.status === "received");
 
   const list = (arr, isDone) => (
     <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
@@ -53,12 +74,25 @@ export default function ItemRequests({ crew, onBack }) {
     </div>
   );
 
+  const reqList = (arr) => (
+    <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+      {arr.map((p) => (
+        <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8, opacity: p.status === "received" ? 0.6 : 1 }}>
+          <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal, whiteSpace: "nowrap" }}>{skiLabel(orderOf(p.order_id))}</span>
+          <span style={{ flex: 1, minWidth: 80, color: C.slate }}>{p.note}</span>
+          <button onClick={() => cycleReq(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
+        </Row>
+      ))}
+    </div>
+  );
+
   return (
     <Card>
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Item requests</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Shop supplies and consumables — WD-40, carb cleaner, rags, etc. Anyone can add to the list; check an item off once it's bought.
+        Shop supplies and consumables, plus parts requested on work orders — everything that needs buying, in one place.
       </p>
 
       <SectionTitle>Request an item</SectionTitle>
@@ -69,7 +103,20 @@ export default function ItemRequests({ crew, onBack }) {
         <button onClick={add} style={btn(C.teal)}>Add</button>
       </Row>
 
-      <SectionTitle>Needs buying ({open.length})</SectionTitle>
+      <SectionTitle>Parts requested on work orders ({openReqs.length})</SectionTitle>
+      {openReqs.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No open parts requests from work orders.</div>
+      ) : reqList(openReqs)}
+      {recvReqs.length > 0 && (
+        <>
+          <SectionTitle right={
+            <button onClick={() => setShowRecv(!showRecv)} style={{ fontFamily: BODY, fontSize: 12, fontWeight: 600, color: C.teal }}>{showRecv ? "Hide" : "Show"}</button>
+          }>Received parts ({recvReqs.length})</SectionTitle>
+          {showRecv && reqList(recvReqs)}
+        </>
+      )}
+
+      <SectionTitle>Shop items · needs buying ({open.length})</SectionTitle>
       {open.length === 0 ? (
         <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing on the list — all caught up.</div>
       ) : list(open, false)}
