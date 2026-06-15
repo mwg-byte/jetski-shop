@@ -17,7 +17,9 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [lakeSession, setLakeSession] = useState(null);
   const [assignees, setAssignees] = useState([]);
   const [tab, setTab] = useState("job");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detForm, setDetForm] = useState({});
   const [, tick] = useState(0);
 
   async function loadAll() {
@@ -47,12 +49,33 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
-  const patchOrder = async (patch) => {
+    const patchOrder = async (patch) => {
     const full = { ...patch };
     if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
     setOrder({ ...order, ...full });
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
+  function openDetails() {
+    setDetForm({
+      customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
+      make: order.make || "", model: order.model || "", year: order.year || "",
+      hull_id: order.hull_id || "", issue: order.issue || "",
+    });
+    setEditingDetails(true);
+  }
+  async function saveDetails() {
+    if (!detForm.customer_name.trim()) return;
+    const patch = order.kind === "maintenance"
+      ? { customer_name: detForm.customer_name.trim(), issue: detForm.issue.trim() || detForm.customer_name.trim() }
+      : {
+          customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(),
+          make: detForm.make.trim(), model: detForm.model.trim(), year: detForm.year.trim(),
+          hull_id: detForm.hull_id.trim(), issue: detForm.issue.trim(),
+        };
+    setOrder({ ...order, ...patch });
+    setEditingDetails(false);
+    await supabase.from("work_orders").update(patch).eq("id", orderId);
+  }
   const totalHrs = round2(hours.reduce((s, h) => s + Number(h.hours), 0));
 
   return (
@@ -96,7 +119,37 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
           <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Opens Messages with a pre-written note to {order.customer_phone}. Review it, then hit send.</div>
         </div>
       )}
-      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
+      <      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
+
+      {canDelete && (editingDetails ? (
+        <div style={{ marginTop: 12, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
+          <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 10 }}>Edit details</div>
+          {order.kind === "maintenance" ? (
+            <>
+              <div><Label>Task *</Label><TextInput value={detForm.customer_name} onChange={(e) => setDetForm({ ...detForm, customer_name: e.target.value })} /></div>
+              <div style={{ marginTop: 10 }}><Label>Details</Label><textarea value={detForm.issue} onChange={(e) => setDetForm({ ...detForm, issue: e.target.value })} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} /></div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                <div><Label>Customer name *</Label><TextInput value={detForm.customer_name} onChange={(e) => setDetForm({ ...detForm, customer_name: e.target.value })} /></div>
+                <div><Label>Phone</Label><TextInput value={detForm.customer_phone} onChange={(e) => setDetForm({ ...detForm, customer_phone: e.target.value })} /></div>
+                <div><Label>Make</Label><TextInput value={detForm.make} onChange={(e) => setDetForm({ ...detForm, make: e.target.value })} /></div>
+                <div><Label>Model</Label><TextInput value={detForm.model} onChange={(e) => setDetForm({ ...detForm, model: e.target.value })} /></div>
+                <div><Label>Year</Label><TextInput value={detForm.year} onChange={(e) => setDetForm({ ...detForm, year: e.target.value })} /></div>
+                <div><Label>Hull / VIN</Label><TextInput value={detForm.hull_id} onChange={(e) => setDetForm({ ...detForm, hull_id: e.target.value })} /></div>
+              </div>
+              <div style={{ marginTop: 10 }}><Label>Issue</Label><textarea value={detForm.issue} onChange={(e) => setDetForm({ ...detForm, issue: e.target.value })} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} /></div>
+            </>
+          )}
+          <Row style={{ marginTop: 12 }}>
+            <button onClick={saveDetails} disabled={!detForm.customer_name?.trim()} style={{ ...btn(C.teal), opacity: !detForm.customer_name?.trim() ? 0.4 : 1 }}>Save details</button>
+            <button onClick={() => setEditingDetails(false)} style={{ fontSize: 14, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+          </Row>
+        </div>
+      ) : (
+        <button onClick={openDetails} style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Edit details</button>
+      ))}
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `2px solid ${C.line}` }}>
