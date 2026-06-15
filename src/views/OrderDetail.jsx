@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, C, DISPLAY, BODY, STAGES, stageOf, PART_STATUSES, PART_COLORS, TEST_RESULTS, TEST_COLORS, today, round2, fmtDate, fmtElapsed } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, btnSm, LiveDot, inputStyle } from "../lib/ui";
 import { useAuth } from "../AuthContext";
+import Invoice from "./Invoice";
 
 const nameOf = (crew, id) => crew.find((t) => t.id === id)?.display_name || "—";
 
@@ -19,6 +20,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [tab, setTab] = useState("job");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
+  const [showInvoice, setShowInvoice] = useState(false);
   const [detForm, setDetForm] = useState({});
   const [, tick] = useState(0);
 
@@ -150,6 +152,10 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       ) : (
         <button onClick={openDetails} style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Edit details</button>
       ))}
+      {canDelete && !editingDetails && (
+        <button onClick={() => setShowInvoice(true)} style={{ marginTop: 10, marginLeft: 12, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Create quote / invoice</button>
+      )}
+      {showInvoice && <Invoice order={order} parts={parts} hours={hours} onClose={() => setShowInvoice(false)} />}
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `2px solid ${C.line}` }}>
