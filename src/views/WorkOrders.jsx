@@ -107,7 +107,7 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
 }
 
 export function NewOrderForm({ onDone, onCancel, nextPriority }) {
-  const [f, setF] = useState({ customer_name: "", customer_phone: "", make: "", model: "", year: "", hull_id: "", issue: "" });
+  const [f, setF] = useState({ customer_name: "", customer_phone: "", make: "", model: "", year: "", hull_id: "", registration: "", issue: "" });
   const [err, setErr] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
@@ -127,7 +127,8 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
         <div><Label>Make</Label><TextInput value={f.make} onChange={set("make")} placeholder="Sea-Doo" /></div>
         <div><Label>Model</Label><TextInput value={f.model} onChange={set("model")} placeholder="GTX 170" /></div>
         <div><Label>Year</Label><TextInput value={f.year} onChange={set("year")} /></div>
-        <div><Label>Hull / VIN</Label><TextInput value={f.hull_id} onChange={set("hull_id")} /></div>
+        <div><Label>HIN (Hull ID)</Label><TextInput value={f.hull_id} onChange={set("hull_id")} /></div>
+        <div><Label>Registration #</Label><TextInput value={f.registration} onChange={set("registration")} /></div>
       </div>
       <div style={{ marginTop: 12 }}>
         <Label>Issue description *</Label>
