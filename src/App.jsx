@@ -13,6 +13,7 @@ import Payroll from "./views/Payroll";
 import Reports from "./views/Reports";
 import Reimbursement from "./views/Reimbursement";
 import ItemRequests from "./views/ItemRequests";
+import ItemsTaken from "./views/ItemsTaken";
 import Inventory from "./views/Inventory";
 import MaintenanceTab from "./views/MaintenanceTab";
 import Settings from "./views/Settings";
@@ -72,6 +73,7 @@ export default function App() {
     { key: "mileage", label: "Mileage", show: true },
     { key: "reimbursement", label: "Reimbursement", show: true },
     { key: "items", label: "Item requests", show: true },
+    { key: "itemstaken", label: "Items taken", show: true },
     { key: "inventory", label: "Inventory", show: mgr },
     { key: "payroll", label: "Payroll", show: mgr },
     { key: "reports", label: "Reports", show: mgr },
@@ -140,19 +142,21 @@ export default function App() {
           <LakeClock crew={crew} orders={orders} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "mileage" ? (
           <Mileage crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "payroll" ? (
+          <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "reports" ? (
+          <Reports onBack={() => setView({ name: "list" })} />
         ) : view.name === "reimbursement" ? (
           <Reimbursement crew={crew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "items" ? (
           <ItemRequests crew={crew} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "itemstaken" ? (
+          <ItemsTaken crew={crew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "inventory" ? (
           <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "maintenance" ? (
           <MaintenanceTab orders={orders} crew={crew} assignees={assignees} liveCounts={liveCounts}
             onOpen={(id) => setView({ name: "detail", id })} onBack={() => setView({ name: "list" })} />
-        ) : view.name === "payroll" ? (
-          <Payroll crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
-        ) : view.name === "reports" ? (
-          <Reports onBack={() => setView({ name: "list" })} />
         ) : view.name === "crew" ? (
           <Crew onCrewChange={loadCrew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "settings" ? (
