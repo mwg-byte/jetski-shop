@@ -1,57 +1,83 @@
 import { useState } from "react";
-import { supabase, C, DISPLAY, BODY, STAGES } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, LiveDot } from "../lib/ui";
 
+const GROUPS = [
+  { key: "intake", label: "Intake", statuses: ["intake", "diagnosing"] },
+  { key: "awaiting", label: "Awaiting Parts", statuses: ["awaiting_parts"] },
+  { key: "repair", label: "In Repair", statuses: ["in_repair", "testing"] },
+  { key: "ready", label: "Ready", statuses: ["ready"] },
+  { key: "completed", label: "Completed", statuses: ["closed"] },
+];
+
 export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew }) {
-  const [statusFilter, setStatusFilter] = useState("open");
+  const [tab, setTab] = useState("repair");
   const [techFilter, setTechFilter] = useState("all");
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
 
+  const matches = (o) =>
+    (techFilter === "all" || (assignees[o.id] || []).includes(techFilter)) &&
+    (!q || [o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q));
+  const countFor = (g) => orders.filter((o) => g.statuses.includes(o.status) && matches(o)).length;
+
+  const group = GROUPS.find((g) => g.key === tab) || GROUPS[2];
   const visible = orders
     .map((o, i) => ({ o, rank: i }))
-    .filter(({ o }) => {
-      if (statusFilter === "open" && o.status === "closed") return false;
-      if (statusFilter !== "open" && statusFilter !== "all" && o.status !== statusFilter) return false;
-      if (techFilter !== "all" && !((assignees[o.id] || []).includes(techFilter))) return false;
-      if (q && ![o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q)) return false;
-      return true;
-    });
+    .filter(({ o }) => group.statuses.includes(o.status) && matches(o));
 
   return (
     <>
       <Row style={{ marginBottom: 12 }}>
         <TextInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer, ski, hull, issue…" style={{ maxWidth: 280 }} />
-        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: "auto" }}>
-          <option value="open">All open</option>
-          <option value="all">Everything</option>
-          {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-        </Select>
         <Select value={techFilter} onChange={(e) => setTechFilter(e.target.value)} style={{ width: "auto" }}>
           <option value="all">Any tech</option>
           {crew.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
         </Select>
       </Row>
 
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+        {GROUPS.map((g) => {
+          const n = countFor(g);
+          const active = tab === g.key;
+          return (
+            <button key={g.key} onClick={() => setTab(g.key)} style={{
+              flex: "0 0 auto", fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em",
+              padding: "8px 14px", borderRadius: 999, whiteSpace: "nowrap",
+              background: active ? C.ink : "#F1F4F6", color: active ? "#fff" : C.slate,
+            }}>
+              {g.label}
+              {n > 0 && <span style={{ marginLeft: 6, fontSize: 12, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: active ? "rgba(255,255,255,0.22)" : C.line, color: active ? "#fff" : C.ink }}>{n}</span>}
+            </button>
+          );
+        })}
+      </div>
+
       {orders.length === 0 ? (
         <Card style={{ textAlign: "center", padding: 40, borderStyle: "dashed" }}>
           <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>No work orders yet</div>
           {canCreate && <button onClick={onNew} style={{ ...btn(C.orange), marginTop: 16 }}>+ New work order</button>}
         </Card>
+      ) : visible.length === 0 ? (
+        <Card style={{ textAlign: "center", padding: 32, borderStyle: "dashed" }}>
+          <div style={{ fontFamily: BODY, fontSize: 14, color: C.slate }}>Nothing in <b>{group.label}</b> right now.</div>
+        </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {visible.map(({ o, rank }) => {
+          {visible.map(({ o, rank }, vi) => {
             const names = (assignees[o.id] || []).map((id) => crew.find((t) => t.id === id)?.display_name).filter(Boolean);
             const live = liveCounts[o.id] || 0;
+            const upDelta = vi > 0 ? visible[vi - 1].rank - rank : 0;
+            const downDelta = vi < visible.length - 1 ? visible[vi + 1].rank - rank : 0;
             return (
               <div key={o.id} style={{ display: "flex", borderRadius: 8, overflow: "hidden", background: C.card, border: `1px solid ${C.line}` }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", padding: "8px 6px", background: C.ink, minWidth: 56 }}>
-                  <button onClick={() => onReorder(o.id, -1)} disabled={rank === 0} style={{ color: "#fff", fontSize: 16, opacity: rank === 0 ? 0.25 : 1, padding: "4px 8px" }}>▲</button>
+                  <button onClick={() => onReorder(o.id, upDelta)} disabled={vi === 0} style={{ color: "#fff", fontSize: 16, opacity: vi === 0 ? 0.25 : 1, padding: "4px 8px" }}>▲</button>
                   <div style={{ textAlign: "center" }}>
-                    <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{rank + 1}</div>
+                    <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{vi + 1}</div>
                     <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.15em", color: "#7E93A3" }}>priority</div>
                   </div>
-                  <button onClick={() => onReorder(o.id, 1)} disabled={rank === orders.length - 1} style={{ color: "#fff", fontSize: 16, opacity: rank === orders.length - 1 ? 0.25 : 1, padding: "4px 8px" }}>▼</button>
+                  <button onClick={() => onReorder(o.id, downDelta)} disabled={vi === visible.length - 1} style={{ color: "#fff", fontSize: 16, opacity: vi === visible.length - 1 ? 0.25 : 1, padding: "4px 8px" }}>▼</button>
                 </div>
                 <button onClick={() => onOpen(o.id)} style={{ flex: 1, textAlign: "left", padding: 12 }}>
                   <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
