@@ -25,6 +25,7 @@ export default function Inventory({ crew, orders, onBack }) {
   const [taken, setTaken] = useState([]);
   const [items, setItems] = useState([]);
   const [reqs, setReqs] = useState([]);
+  const [consum, setConsum] = useState([]);
   const thisWeek = weekStart(new Date());
   const [week, setWeek] = useState(thisWeek);
   const [showDone, setShowDone] = useState(false);
@@ -34,12 +35,13 @@ export default function Inventory({ crew, orders, onBack }) {
   const orderOf = (id) => orders.find((o) => o.id === id);
 
   async function load() {
-    const [{ data: p }, { data: ir }, { data: pr }] = await Promise.all([
+    const [{ data: p }, { data: ir }, { data: pr }, { data: ct }] = await Promise.all([
       supabase.from("parts").select("*").eq("kind", "taken").order("created_at", { ascending: false }),
       supabase.from("item_requests").select("*").order("created_at", { ascending: false }),
       supabase.from("parts").select("*").eq("kind", "request").order("created_at", { ascending: false }),
+      supabase.from("consumables_taken").select("*").order("created_at", { ascending: false }),
     ]);
-    setTaken(p || []); setItems(ir || []); setReqs(pr || []);
+    setTaken(p || []); setItems(ir || []); setReqs(pr || []); setConsum(ct || []);
   }
   useEffect(() => { load(); }, []);
 
@@ -62,6 +64,8 @@ export default function Inventory({ crew, orders, onBack }) {
 
   const wkTaken = taken.filter((p) => inWeek(p.created_at));
   const wkQty = wkTaken.reduce((a, p) => a + Number(p.qty), 0);
+  const wkConsum = consum.filter((c) => inWeek(c.created_at));
+  const wkConsumQty = wkConsum.reduce((a, c) => a + Number(c.qty), 0);
 
   const openItems = items.filter((x) => !x.purchased);
   const doneItems = items.filter((x) => x.purchased);
@@ -92,7 +96,7 @@ export default function Inventory({ crew, orders, onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Inventory</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Parts requested on jobs, parts pulled (by week), and shop item requests — all in one place.
+        Parts requested on jobs, parts pulled, shop consumables taken (by week), and item requests — all in one place.
       </p>
 
       <SectionTitle>Work order parts · needs ordering ({openReqs.length})</SectionTitle>
@@ -128,6 +132,23 @@ export default function Inventory({ crew, orders, onBack }) {
               <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
               <span style={{ flex: 1, color: C.slate }}>{skiLabel(orderOf(p.order_id))}</span>
               {p.note && <span style={{ fontSize: 12, color: C.slate }}>{p.note}</span>}
+            </Row>
+          ))}
+        </div>
+      )}
+
+      <SectionTitle>Shop consumables taken · {weekLabel}</SectionTitle>
+      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginBottom: 6 }}>{wkConsum.length} entries · {wkConsumQty} items taken this week</div>
+      {wkConsum.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No consumables logged this week.</div>
+      ) : (
+        <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+          {wkConsum.map((c) => (
+            <Row key={c.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <span style={{ color: C.slate, minWidth: 60 }}>{fmtDate(c.created_at)}</span>
+              <span style={{ fontWeight: 600, color: C.ink }}>{c.qty}× {c.name}</span>
+              <span style={{ flex: 1, color: C.slate }}>{c.note}</span>
+              <span style={{ fontSize: 12, color: C.slate }}>{nameOf(c.taken_by)}</span>
             </Row>
           ))}
         </div>
