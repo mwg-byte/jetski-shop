@@ -28,7 +28,7 @@ export default function Inventory({ crew, orders, onBack }) {
   const [consum, setConsum] = useState([]);
   const thisWeek = weekStart(new Date());
   const [week, setWeek] = useState(thisWeek);
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(true);
   const [showRecv, setShowRecv] = useState(false);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
@@ -96,7 +96,7 @@ export default function Inventory({ crew, orders, onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Inventory</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Parts requested on jobs, parts pulled, shop consumables taken (by week), and item requests — all in one place.
+        Parts requested on jobs, parts pulled (by week), and shop item requests — all in one place.
       </p>
 
       <SectionTitle>Work order parts · needs ordering ({openReqs.length})</SectionTitle>
@@ -180,6 +180,7 @@ export default function Inventory({ crew, orders, onBack }) {
               <button onClick={() => togglePurchased(it)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${C.green}`, background: C.green, color: "#fff", fontSize: 13, fontWeight: 700 }}>✓</button>
               <span style={{ fontWeight: 600, color: C.ink, textDecoration: "line-through" }}>{it.qty}× {it.name}</span>
               <span style={{ flex: 1, color: C.slate }}>{it.note}</span>
+              {it.purchased_at && <span style={{ fontSize: 12, fontWeight: 600, color: C.green }}>bought {fmtDate(it.purchased_at)}</span>}
               <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.requested_by)}</span>
             </Row>
           ))}
