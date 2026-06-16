@@ -4,6 +4,7 @@ import { useAuth } from "./AuthContext";
 import { Row } from "./lib/ui";
 import { WorkOrderList, NewOrderForm, MaintenanceForm } from "./views/WorkOrders";
 import OrderDetail from "./views/OrderDetail";
+import Dashboard from "./views/Dashboard";
 import ShiftClock from "./views/ShiftClock";
 import LakeClock from "./views/LakeClock";
 import MyHours from "./views/MyHours";
@@ -23,7 +24,7 @@ export default function App() {
   const { profile } = useAuth();
   const mgr = isManager(profile.role);
   const canMaint = ["owner", "manager", "maintenance"].includes(profile.role);
-  const [view, setView] = useState({ name: "list" });
+  const [view, setView] = useState({ name: "home" });
   const [orders, setOrders] = useState([]);
   const [crew, setCrew] = useState([]);
   const [liveCounts, setLiveCounts] = useState({});
@@ -66,6 +67,7 @@ export default function App() {
   }
 
   const navItems = [
+    { key: "home", label: "Home", show: true },
     { key: "list", label: "Work orders", show: true },
     { key: "maintenance", label: "Maintenance", show: canMaint },
     { key: "timeclock", label: "Time clock", show: true },
@@ -127,7 +129,9 @@ export default function App() {
       </header>
 
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "16px" }}>
-        {view.name === "new" ? (
+        {view.name === "home" ? (
+          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} onOpen={(id) => setView({ name: "detail", id })} />
+        ) : view.name === "new" ? (
           <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "newmaint" ? (
