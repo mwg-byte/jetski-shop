@@ -15,6 +15,7 @@ import Reimbursement from "./views/Reimbursement";
 import ItemRequests from "./views/ItemRequests";
 import ItemsTaken from "./views/ItemsTaken";
 import Inventory from "./views/Inventory";
+import Stock from "./views/Stock";
 import MaintenanceTab from "./views/MaintenanceTab";
 import Settings from "./views/Settings";
 
@@ -74,6 +75,7 @@ export default function App() {
     { key: "reimbursement", label: "Reimbursement", show: true },
     { key: "items", label: "Item requests", show: true },
     { key: "itemstaken", label: "Items taken", show: true },
+    { key: "stock", label: "Stock", show: true },
     { key: "inventory", label: "Inventory", show: mgr },
     { key: "payroll", label: "Payroll", show: mgr },
     { key: "reports", label: "Reports", show: mgr },
@@ -152,6 +154,8 @@ export default function App() {
           <ItemRequests crew={crew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "itemstaken" ? (
           <ItemsTaken crew={crew} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "stock" ? (
+          <Stock onBack={() => setView({ name: "list" })} />
         ) : view.name === "inventory" ? (
           <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "maintenance" ? (
