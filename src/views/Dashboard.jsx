@@ -3,7 +3,7 @@ import { supabase, C, DISPLAY, BODY, fmtDate } from "../lib/supabase";
 import { Card, Row, TextInput, Select, SectionTitle, StatusChip, btn } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
-export default function Dashboard({ crew, orders, assignees = {}, mgr, onOpen }) {
+export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread, onOpen }) {
   const { profile } = useAuth();
   const [msgs, setMsgs] = useState([]);
   const [to, setTo] = useState("");
@@ -18,6 +18,9 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onOpen })
   }
   useEffect(() => { loadMsgs(); }, []);
 
+  const unreadCount = msgs.filter((m) => !m.read).length;
+  useEffect(() => { onUnread?.(unreadCount); }, [unreadCount]);
+
   const myOrders = orders.filter((o) => (assignees[o.id] || []).includes(profile.id) && o.status !== "closed");
 
   async function send() {
@@ -31,7 +34,17 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onOpen })
     loadMsgs();
     setTimeout(() => setSent(""), 2500);
   }
-  async function dismiss(m) {
+  async function setRead(m, read) {
+    setMsgs(msgs.map((x) => (x.id === m.id ? { ...x, read } : x)));
+    await supabase.from("dashboard_messages").update({ read }).eq("id", m.id);
+  }
+  async function markAllRead() {
+    const ids = msgs.filter((m) => !m.read).map((m) => m.id);
+    if (!ids.length) return;
+    setMsgs(msgs.map((x) => ({ ...x, read: true })));
+    await supabase.from("dashboard_messages").update({ read: true }).in("id", ids);
+  }
+  async function remove(m) {
     setMsgs(msgs.filter((x) => x.id !== m.id));
     await supabase.from("dashboard_messages").delete().eq("id", m.id);
   }
@@ -62,21 +75,30 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onOpen })
       )}
 
       <Card style={{ marginTop: 12 }}>
-        <SectionTitle>Messages ({msgs.length})</SectionTitle>
+        <SectionTitle right={unreadCount > 0 ? <button onClick={markAllRead} style={{ fontFamily: BODY, fontSize: 12, fontWeight: 600, color: C.teal }}>Mark all read</button> : null}>
+          Messages{unreadCount > 0 ? ` · ${unreadCount} unread` : ""}
+        </SectionTitle>
         {msgs.length === 0 ? (
           <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No messages right now.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {msgs.map((m) => (
-              <div key={m.id} style={{ border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.orange}`, borderRadius: 6, padding: "10px 12px", background: "#FFFDF7" }}>
+              <div key={m.id} style={{
+                border: `1px solid ${C.line}`, borderLeft: `4px solid ${m.read ? "#D6DEE3" : C.orange}`,
+                borderRadius: 6, padding: "10px 12px", background: m.read ? "#fff" : "#FFFDF7", opacity: m.read ? 0.7 : 1,
+              }}>
                 <Row style={{ justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{nameOf(m.sender_id)}</span>
                   <Row style={{ gap: 8 }}>
-                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(m.created_at)}</span>
-                    <button onClick={() => dismiss(m)} style={{ fontSize: 12, color: C.teal, fontFamily: BODY }}>dismiss</button>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{nameOf(m.sender_id)}</span>
+                    {!m.read && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 7px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
                   </Row>
+                  <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(m.created_at)}</span>
                 </Row>
-                <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-wrap" }}>{m.body}</div>
+                <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap", fontWeight: m.read ? 400 : 600 }}>{m.body}</div>
+                <Row style={{ gap: 12 }}>
+                  <button onClick={() => setRead(m, !m.read)} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>{m.read ? "Mark unread" : "Mark read"}</button>
+                  <button onClick={() => remove(m)} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>remove</button>
+                </Row>
               </div>
             ))}
           </div>
