@@ -63,7 +63,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     setDetForm({
       customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
       make: order.make || "", model: order.model || "", year: order.year || "",
-      hull_id: order.hull_id || "", issue: order.issue || "",
+      hull_id: order.hull_id || "", registration: order.registration || "", issue: order.issue || "",
     });
     setEditingDetails(true);
   }
@@ -74,7 +74,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       : {
           customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(),
           make: detForm.make.trim(), model: detForm.model.trim(), year: detForm.year.trim(),
-          hull_id: detForm.hull_id.trim(), issue: detForm.issue.trim(),
+          hull_id: detForm.hull_id.trim(), registration: detForm.registration.trim(), issue: detForm.issue.trim(),
         };
     setOrder({ ...order, ...patch });
     setEditingDetails(false);
@@ -106,7 +106,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
           <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, lineHeight: 1.1 }}>{order.customer_name}</h2>
           <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
             {[order.year, order.make, order.model].filter(Boolean).join(" ")}
-            {order.hull_id && ` · Hull ${order.hull_id}`}{order.customer_phone && ` · ${order.customer_phone}`}
+            {order.hull_id && ` · HIN ${order.hull_id}`}{order.registration && ` · Reg ${order.registration}`}{order.customer_phone && ` · ${order.customer_phone}`}
           </div>
         </div>
         <StatusChip status={order.status} big />
@@ -141,7 +141,8 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
                 <div><Label>Make</Label><TextInput value={detForm.make} onChange={(e) => setDetForm({ ...detForm, make: e.target.value })} /></div>
                 <div><Label>Model</Label><TextInput value={detForm.model} onChange={(e) => setDetForm({ ...detForm, model: e.target.value })} /></div>
                 <div><Label>Year</Label><TextInput value={detForm.year} onChange={(e) => setDetForm({ ...detForm, year: e.target.value })} /></div>
-                <div><Label>Hull / VIN</Label><TextInput value={detForm.hull_id} onChange={(e) => setDetForm({ ...detForm, hull_id: e.target.value })} /></div>
+                <div><Label>HIN (Hull ID)</Label><TextInput value={detForm.hull_id} onChange={(e) => setDetForm({ ...detForm, hull_id: e.target.value })} /></div>
+                <div><Label>Registration #</Label><TextInput value={detForm.registration} onChange={(e) => setDetForm({ ...detForm, registration: e.target.value })} /></div>
               </div>
               <div style={{ marginTop: 10 }}><Label>Issue</Label><textarea value={detForm.issue} onChange={(e) => setDetForm({ ...detForm, issue: e.target.value })} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} /></div>
             </>
