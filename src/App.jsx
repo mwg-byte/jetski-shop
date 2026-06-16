@@ -31,6 +31,7 @@ export default function App() {
   const [activeShiftCount, setActiveShiftCount] = useState(0);
   const [settings, setSettings] = useState(null);
   const [assignees, setAssignees] = useState({});
+  const [unread, setUnread] = useState(0);
 
   async function loadOrders() {
     const { data } = await supabase.from("work_orders").select("*").order("priority");
@@ -50,11 +51,15 @@ export default function App() {
     const { data } = await supabase.from("profiles").select("id, display_name, role").eq("active", true).order("display_name");
     setCrew(data || []);
   }
+  async function loadUnread() {
+    const { count } = await supabase.from("dashboard_messages").select("*", { count: "exact", head: true }).eq("recipient_id", profile.id).eq("read", false);
+    setUnread(count || 0);
+  }
   async function loadSettings() {
     const { data } = await supabase.from("settings").select("*").eq("id", 1).single();
     setSettings(data);
   }
-  useEffect(() => { loadOrders(); loadCrew(); loadSettings(); }, []);
+  useEffect(() => { loadOrders(); loadCrew(); loadSettings(); loadUnread(); }, []);
 
   async function reorder(id, dir) {
     const i = orders.findIndex((o) => o.id === id);
@@ -110,7 +115,7 @@ export default function App() {
                 fontFamily: BODY, fontSize: 13, fontWeight: 600, padding: "7px 12px", borderRadius: 6,
                 background: view.name === n.key ? C.orange : "#1B3A50",
                 color: view.name === n.key ? "#fff" : "#CFE0EA",
-              }}>{n.label}</button>
+              }}>{n.label}{n.key === "home" && unread > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#fff", color: C.orange }}>{unread}</span>}</button>
             ))}
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               {canMaint && (
@@ -130,7 +135,7 @@ export default function App() {
 
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "16px" }}>
         {view.name === "home" ? (
-          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} onOpen={(id) => setView({ name: "detail", id })} />
+          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} onUnread={setUnread} onOpen={(id) => setView({ name: "detail", id })} />
         ) : view.name === "new" ? (
           <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
