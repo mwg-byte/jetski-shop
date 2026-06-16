@@ -21,7 +21,7 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
   const [lines, setLines] = useState(init);
   const [m, setM] = useState({
     number: "", date: new Date().toLocaleDateString(), terms: "", customerNum: "", rep: "",
-    taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0",
+    taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0", notes: "",
   });
   const billTo = [order.customer_name, order.customer_phone, ski, order.hull_id ? `Hull ${order.hull_id}` : ""].filter(Boolean);
 
@@ -130,6 +130,11 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
                 <span style={{ width: 90, textAlign: "right", fontSize: 15, fontWeight: 700, padding: "3px 4px", fontFamily: BODY }}>{money(total)}</span>
               </div>
             </div>
+          </div>
+
+          <div style={{ marginTop: 20 }}>
+            <span style={{ ...bar, display: "inline-block", minWidth: 220 }}>Notes</span>
+            <textarea value={m.notes} onChange={set("notes")} rows={4} placeholder="Notes for the customer — warranty terms, recommendations, next service due…" style={{ width: "100%", marginTop: 6, fontFamily: BODY, fontSize: 13, color: "#111", border: "1px solid #ddd", borderRadius: 4, padding: "8px 10px", background: "#fff", boxSizing: "border-box", resize: "vertical" }} />
           </div>
         </div>
       </div>
