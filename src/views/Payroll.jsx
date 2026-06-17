@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, C, DISPLAY, BODY, round2, fmtDate } from "../lib/supabase";
-import { Card, Row, TextInput, Select, Label, SectionTitle, btn } from "../lib/ui";
+import { Card, Row, TextInput, Select, Label, SectionTitle, btn, btnSm } from "../lib/ui";
+import { useAuth } from "../AuthContext";
 
 /* Monday-start week containing `d` */
 function weekStart(d) {
@@ -21,6 +22,9 @@ const overlapMs = (s, e, ws, we) => {
 };
 
 export default function Payroll({ crew, settings, onBack }) {
+  const { profile } = useAuth();
+  const isOwner = profile.role === "owner";
+  const [pending, setPending] = useState([]);
   const [start, setStart] = useState(weekStart(new Date().toISOString().slice(0, 10)));
   const [periodLen, setPeriodLen] = useState(7); // 7 or 14 days
   const [shifts, setShifts] = useState([]);
@@ -48,6 +52,17 @@ export default function Payroll({ crew, settings, onBack }) {
     });
   }, [start, periodLen]);
 
+  useEffect(() => {
+    supabase.from("expenses").select("*").eq("reimbursed", false).order("expense_date").then(({ data }) => setPending(data || []));
+  }, []);
+
+  async function markPaid(x) {
+    setPending((cur) => cur.filter((p) => p.id !== x.id));
+    await supabase.from("expenses").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", x.id);
+  }
+  const pendingTotal = round2(pending.reduce((a, x) => a + Number(x.amount), 0));
+
+  // build per-tech, per-week hours so OT is computed weekly even in a 2-week period
   const rows = crew.map((t) => {
     let regHrs = 0, otHrs = 0;
     const weeks = periodLen === 14 ? [start, addDays(start, 7)] : [start];
@@ -122,7 +137,7 @@ export default function Payroll({ crew, settings, onBack }) {
         <div style={{ padding: 30, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Calculating…</div>
       ) : (
         <div style={{ overflowX: "auto", marginTop: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BODY, fontSize: 13, minWidth: 680 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BODY, fontSize: 13, minWidth: 640 }}>
             <thead>
               <tr style={{ background: "#F6F8F9", color: C.slate, textAlign: "right" }}>
                 {["Employee", "Reg hrs", "OT hrs", "Rate", "Reg pay", "OT pay", "Miles", "Mileage", "Receipts", "Gross"].map((h, i) => (
@@ -161,6 +176,42 @@ export default function Payroll({ crew, settings, onBack }) {
           </table>
         </div>
       )}
+      <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.green, fontFamily: BODY }}>{money(pendingTotal)} owed</span>}>Reimbursements to pay out</SectionTitle>
+      <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 2, marginBottom: 8 }}>
+        Pending out-of-pocket expenses across all dates. {isOwner ? "Tap Mark paid once you've reimbursed someone — it clears from their reimbursement list." : "Owners can mark these paid."}
+      </p>
+      {pending.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing outstanding — everyone's paid up.</div>
+      ) : (
+        crew.map((t) => {
+          const items = pending.filter((x) => x.tech_id === t.id);
+          if (!items.length) return null;
+          const sub = round2(items.reduce((a, x) => a + Number(x.amount), 0));
+          return (
+            <div key={t.id} style={{ marginBottom: 14 }}>
+              <Row style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, color: C.ink }}>{t.display_name}</span>
+                <span style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, color: C.green }}>{money(sub)}</span>
+              </Row>
+              <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+                {items.map((x) => {
+                  const url = x.receipt_path ? supabase.storage.from("job-media").getPublicUrl(x.receipt_path).data.publicUrl : null;
+                  return (
+                    <Row key={x.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                      <span style={{ color: C.slate, minWidth: 70 }}>{fmtDate(x.expense_date)}</span>
+                      <span style={{ flex: 1, color: C.ink, minWidth: 120 }}>{x.description}</span>
+                      {url && <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>receipt</a>}
+                      <span style={{ fontWeight: 700, color: C.green }}>{money(Number(x.amount))}</span>
+                      {isOwner && <button onClick={() => markPaid(x)} style={btnSm(C.teal)}>Mark paid</button>}
+                    </Row>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })
+      )}
+
       <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 12 }}>
         This is a gross-pay worksheet for your records and payroll provider — it doesn't calculate tax withholding. Set each person's rate in the Crew screen; overtime rules are in Settings.
       </p>
