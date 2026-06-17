@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase, C, DISPLAY, BODY } from "../lib/supabase";
 import { useAuth } from "../AuthContext";
 
@@ -23,6 +23,20 @@ const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
   : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
       ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
       : []);
+
+function AutoGrow({ value, onChange, readOnly, placeholder, style }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea ref={ref} rows={1} value={value} onChange={onChange} readOnly={readOnly} placeholder={placeholder}
+      style={{ ...style, resize: "none", overflow: "hidden", display: "block", lineHeight: 1.35 }} />
+  );
+}
 
 export default function Inspection({ order, canEdit, onClose }) {
   const { profile } = useAuth();
@@ -70,13 +84,13 @@ export default function Inspection({ order, canEdit, onClose }) {
   const custRow = (label, key) => (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
       <span style={{ width: 150, flexShrink: 0, fontWeight: 600, fontSize: 13, fontFamily: BODY, color: "#111" }}>{label}</span>
-      <input value={d.customer[key] || ""} onChange={(e) => setCustomer(key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
+      <AutoGrow value={d.customer[key] || ""} onChange={(e) => setCustomer(key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
     </div>
   );
   const machRow = (i, label, key) => (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
       <span style={{ width: 150, flexShrink: 0, fontWeight: 600, fontSize: 13, fontFamily: BODY, color: "#111" }}>{label}</span>
-      <input value={d.units[i].machine[key] || ""} onChange={(e) => setUnitMachine(i, key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
+      <AutoGrow value={d.units[i].machine[key] || ""} onChange={(e) => setUnitMachine(i, key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
     </div>
   );
   const inspectTable = (i, sec, condLabel) => (
@@ -87,10 +101,10 @@ export default function Inspection({ order, canEdit, onClose }) {
         <span style={{ flex: 2, padding: "4px 8px" }}>Notes / Damage</span>
       </div>
       {ITEMS.map(([key, label]) => (
-        <div key={key} style={{ display: "flex", borderBottom: "1px solid #eee", alignItems: "center" }}>
+        <div key={key} style={{ display: "flex", borderBottom: "1px solid #eee", alignItems: "stretch" }}>
           <span style={{ width: 170, padding: "5px 8px", fontSize: 12, fontWeight: 600, fontFamily: BODY, color: "#111" }}>{label}</span>
-          <input value={(d.units[i][sec][key] || {}).cond || ""} onChange={(e) => setUnitCell(i, sec, key, "cond", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Condition" : ""} style={{ ...fi, flex: 1, borderBottom: "none", borderRight: "1px solid #eee" }} />
-          <input value={(d.units[i][sec][key] || {}).notes || ""} onChange={(e) => setUnitCell(i, sec, key, "notes", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Notes / damage" : ""} style={{ ...fi, flex: 2, borderBottom: "none" }} />
+          <AutoGrow value={(d.units[i][sec][key] || {}).cond || ""} onChange={(e) => setUnitCell(i, sec, key, "cond", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Condition" : ""} style={{ ...fi, flex: 1, borderBottom: "none", borderRight: "1px solid #eee" }} />
+          <AutoGrow value={(d.units[i][sec][key] || {}).notes || ""} onChange={(e) => setUnitCell(i, sec, key, "notes", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Notes / damage" : ""} style={{ ...fi, flex: 2, borderBottom: "none" }} />
         </div>
       ))}
     </div>
