@@ -5,6 +5,7 @@ import { useAuth } from "../AuthContext";
 import Invoice from "./Invoice";
 import Inspection from "./Inspection";
 import { SkiEditor, blankSki, cleanSkis } from "./WorkOrders";
+import RepairOrder from "./RepairOrder";
 
 const nameOf = (crew, id) => crew.find((t) => t.id === id)?.display_name || "—";
 const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
@@ -496,6 +497,8 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
             : <img src={publicUrl(lightbox.path)} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8 }} />}
         </div>
       )}
+
+      {order.kind !== "maintenance" && <RepairOrder orderId={orderId} />}
     </>
   );
 }
