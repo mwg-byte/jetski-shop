@@ -4,8 +4,15 @@ import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, btn
 import { useAuth } from "../AuthContext";
 import Invoice from "./Invoice";
 import Inspection from "./Inspection";
+import { SkiEditor, blankSki, cleanSkis } from "./WorkOrders";
 
 const nameOf = (crew, id) => crew.find((t) => t.id === id)?.display_name || "—";
+const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
+  ? o.skis
+  : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
+      ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
+      : []);
+const skiLabel = (s) => [s.year, s.make, s.model].filter(Boolean).join(" ");
 
 export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const { profile } = useAuth();
@@ -53,6 +60,8 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
+  const skis = skisOf(order);
+
   const patchOrder = async (patch) => {
     const full = { ...patch };
     if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
@@ -60,22 +69,26 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
   function openDetails() {
+    const sk = skisOf(order).map((s) => ({ year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "" }));
     setDetForm({
       customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
-      make: order.make || "", model: order.model || "", year: order.year || "",
-      hull_id: order.hull_id || "", registration: order.registration || "", issue: order.issue || "",
+      issue: order.issue || "", skis: sk.length ? sk : [blankSki()],
     });
     setEditingDetails(true);
   }
   async function saveDetails() {
     if (!detForm.customer_name.trim()) return;
-    const patch = order.kind === "maintenance"
-      ? { customer_name: detForm.customer_name.trim(), issue: detForm.issue.trim() || detForm.customer_name.trim() }
-      : {
-          customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(),
-          make: detForm.make.trim(), model: detForm.model.trim(), year: detForm.year.trim(),
-          hull_id: detForm.hull_id.trim(), registration: detForm.registration.trim(), issue: detForm.issue.trim(),
-        };
+    let patch;
+    if (order.kind === "maintenance") {
+      patch = { customer_name: detForm.customer_name.trim(), issue: detForm.issue.trim() || detForm.customer_name.trim() };
+    } else {
+      const list = cleanSkis(detForm.skis || []);
+      const s0 = list[0] || {};
+      patch = {
+        customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(), issue: detForm.issue.trim(),
+        skis: list, year: s0.year || "", make: s0.make || "", model: s0.model || "", hull_id: s0.hull_id || "", registration: s0.registration || "",
+      };
+    }
     setOrder({ ...order, ...patch });
     setEditingDetails(false);
     await supabase.from("work_orders").update(patch).eq("id", orderId);
@@ -105,8 +118,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
         <div>
           <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, lineHeight: 1.1 }}>{order.customer_name}</h2>
           <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-            {[order.year, order.make, order.model].filter(Boolean).join(" ")}
-            {order.hull_id && ` · HIN ${order.hull_id}`}{order.registration && ` · Reg ${order.registration}`}{order.customer_phone && ` · ${order.customer_phone}`}
+            {skis.length > 0 ? skiLabel(skis[0]) : ""}{skis.length > 1 ? ` · +${skis.length - 1} more` : ""}{order.customer_phone && ` · ${order.customer_phone}`}
           </div>
         </div>
         <StatusChip status={order.status} big />
@@ -125,6 +137,20 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       )}
       <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
 
+      {order.kind !== "maintenance" && skis.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 6 }}>Skis ({skis.length})</div>
+          <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+            {skis.map((s, i) => (
+              <Row key={i} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ fontWeight: 700, color: C.ink }}>{skiLabel(s) || `Ski ${i + 1}`}</span>
+                <span style={{ flex: 1, color: C.slate }}>{[s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ")}</span>
+              </Row>
+            ))}
+          </div>
+        </div>
+      )}
+
       {canDelete && (editingDetails ? (
         <div style={{ marginTop: 12, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
           <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 10 }}>Edit details</div>
@@ -138,11 +164,10 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
                 <div><Label>Customer name *</Label><TextInput value={detForm.customer_name} onChange={(e) => setDetForm({ ...detForm, customer_name: e.target.value })} /></div>
                 <div><Label>Phone</Label><TextInput value={detForm.customer_phone} onChange={(e) => setDetForm({ ...detForm, customer_phone: e.target.value })} /></div>
-                <div><Label>Make</Label><TextInput value={detForm.make} onChange={(e) => setDetForm({ ...detForm, make: e.target.value })} /></div>
-                <div><Label>Model</Label><TextInput value={detForm.model} onChange={(e) => setDetForm({ ...detForm, model: e.target.value })} /></div>
-                <div><Label>Year</Label><TextInput value={detForm.year} onChange={(e) => setDetForm({ ...detForm, year: e.target.value })} /></div>
-                <div><Label>HIN (Hull ID)</Label><TextInput value={detForm.hull_id} onChange={(e) => setDetForm({ ...detForm, hull_id: e.target.value })} /></div>
-                <div><Label>Registration #</Label><TextInput value={detForm.registration} onChange={(e) => setDetForm({ ...detForm, registration: e.target.value })} /></div>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <Label>Skis</Label>
+                <SkiEditor skis={detForm.skis || []} onChange={(skis) => setDetForm({ ...detForm, skis })} />
               </div>
               <div style={{ marginTop: 10 }}><Label>Issue</Label><textarea value={detForm.issue} onChange={(e) => setDetForm({ ...detForm, issue: e.target.value })} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} /></div>
             </>
