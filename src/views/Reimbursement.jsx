@@ -22,7 +22,7 @@ export default function Reimbursement({ crew, onBack }) {
 
   async function load() {
     let q = supabase.from("expenses").select("*").order("expense_date", { ascending: false });
-    if (!mgr) q = q.eq("tech_id", profile.id);
+    if (!mgr) q = q.eq("tech_id", profile.id).eq("reimbursed", false);
     const { data } = await q;
     setExpenses(data || []);
   }
@@ -71,7 +71,7 @@ export default function Reimbursement({ crew, onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Reimbursement</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Submit out-of-pocket expenses — parts runs, dump fees, supplies. Add what it was for, the amount, and a photo of the receipt. Totals flow into Payroll and Reports.
+        Submit out-of-pocket expenses — parts runs, dump fees, supplies. Add what it was for, the amount, and a photo of the receipt. Totals flow into Payroll and Reports. Once the owner marks one paid in Payroll, it clears off this list.
       </p>
 
       <SectionTitle>Submit an expense</SectionTitle>
@@ -121,7 +121,8 @@ export default function Reimbursement({ crew, onBack }) {
                 <span style={{ flex: 1, color: C.ink }}>{x.description}</span>
                 {url && <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>receipt</a>}
                 <span style={{ fontWeight: 700, color: C.green }}>{money(x.amount)}</span>
-                {canRemove && <button onClick={() => remove(x)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                {mgr && x.reimbursed && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.green + "1A", color: C.green }}>Paid</span>}
+                {canRemove && !x.reimbursed && <button onClick={() => remove(x)} style={{ fontSize: 12, color: C.red }}>remove</button>}
               </Row>
             );
           })}
