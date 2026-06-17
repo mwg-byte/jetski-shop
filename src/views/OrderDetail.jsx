@@ -215,8 +215,10 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 /* ================= JOB TAB ================= */
 function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "" });
-  const [partForm, setPartForm] = useState({ name: "", qty: "1", note: "" });
-  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", note: "" });
+  const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "" });
+  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "" });
+  const [editPartId, setEditPartId] = useState(null);
+  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "" });
   const [noteText, setNoteText] = useState("");
   const [editHourId, setEditHourId] = useState(null);
   const [editHourVals, setEditHourVals] = useState({ hours: "", work_date: "" });
@@ -249,13 +251,13 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   async function addPart() {
     if (!partForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, note: partForm.note.trim(), kind: "request" }).select().single();
-    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", note: "" }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, sku: partForm.sku.trim(), note: partForm.note.trim(), kind: "request" }).select().single();
+    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", sku: "", note: "" }); }
   }
   async function addTaken() {
     if (!takenForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, note: takenForm.note.trim(), kind: "taken" }).select().single();
-    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", note: "" }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), kind: "taken" }).select().single();
+    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "" }); }
   }
   async function addNote() {
     const body = noteText.trim();
@@ -283,6 +285,24 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
     const status = PART_STATUSES[(PART_STATUSES.indexOf(p.status) + 1) % PART_STATUSES.length];
     setParts(parts.map((x) => (x.id === p.id ? { ...x, status } : x)));
     await supabase.from("parts").update({ status }).eq("id", p.id);
+  }
+  function startEditPart(p) {
+    setEditPartId(p.id);
+    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "" });
+  }
+  async function saveEditPart(p) {
+    const name = editPartVals.name.trim();
+    if (!name) return;
+    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim() };
+    setParts(parts.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
+    setEditPartId(null);
+    await supabase.from("parts").update(patch).eq("id", p.id);
+  }
+  async function receivePart(p) {
+    const created_at = new Date().toISOString();
+    setParts(parts.map((x) => (x.id === p.id ? { ...x, kind: "taken", created_at } : x)));
+    setEditPartId(null);
+    await supabase.from("parts").update({ kind: "taken", created_at }).eq("id", p.id);
   }
   async function uploadFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -433,18 +453,37 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       {requests.length > 0 && (
         <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
           {requests.map((p) => (
-            <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
-              <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
-              <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
-              <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
-              <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
-            </Row>
+            editPartId === p.id ? (
+              <div key={p.id} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.line}`, fontFamily: BODY, background: "#F6F8F9" }}>
+                <Row style={{ flexWrap: "wrap", gap: 8 }}>
+                  <TextInput placeholder="Part name" value={editPartVals.name} onChange={(e) => setEditPartVals({ ...editPartVals, name: e.target.value })} style={{ flex: 2, minWidth: 160 }} />
+                  <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
+                  <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
+                  <TextInput placeholder="Note / supplier" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                </Row>
+                <Row style={{ marginTop: 8 }}>
+                  <button onClick={() => saveEditPart(p)} style={btnSm(C.teal)}>Save</button>
+                  <button onClick={() => setEditPartId(null)} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+                </Row>
+              </div>
+            ) : (
+              <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+                {p.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {p.sku}</span>}
+                <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
+                <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
+                <button onClick={() => receivePart(p)} style={btnSm(C.green)}>✓ Received</button>
+                <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
+                <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+              </Row>
+            )
           ))}
         </div>
       )}
       <Row>
         <TextInput placeholder="Part — Starter relay 278003012" value={partForm.name} onChange={(e) => setPartForm({ ...partForm, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
         <TextInput type="number" min="1" value={partForm.qty} onChange={(e) => setPartForm({ ...partForm, qty: e.target.value })} style={{ width: 70 }} />
+        <TextInput placeholder="SKU" value={partForm.sku} onChange={(e) => setPartForm({ ...partForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note / supplier" value={partForm.note} onChange={(e) => setPartForm({ ...partForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
         <button onClick={addPart} style={btn(C.teal)}>Request part</button>
       </Row>
@@ -453,18 +492,36 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       {taken.length > 0 && (
         <div style={{ borderRadius: 6, overflow: "hidden", marginBottom: 8, border: `1px solid ${C.line}` }}>
           {taken.map((p) => (
-            <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
-              <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
-              <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
-              <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
-              <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
-            </Row>
+            editPartId === p.id ? (
+              <div key={p.id} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.line}`, fontFamily: BODY, background: "#F6F8F9" }}>
+                <Row style={{ flexWrap: "wrap", gap: 8 }}>
+                  <TextInput placeholder="Part name" value={editPartVals.name} onChange={(e) => setEditPartVals({ ...editPartVals, name: e.target.value })} style={{ flex: 2, minWidth: 160 }} />
+                  <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
+                  <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
+                  <TextInput placeholder="Note" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                </Row>
+                <Row style={{ marginTop: 8 }}>
+                  <button onClick={() => saveEditPart(p)} style={btnSm(C.teal)}>Save</button>
+                  <button onClick={() => setEditPartId(null)} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
+                </Row>
+              </div>
+            ) : (
+              <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
+                {p.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {p.sku}</span>}
+                <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
+                <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
+                <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
+                <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
+              </Row>
+            )
           ))}
         </div>
       )}
       <Row>
         <TextInput placeholder="Part pulled — e.g. impeller, oil filter" value={takenForm.name} onChange={(e) => setTakenForm({ ...takenForm, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
         <TextInput type="number" min="1" value={takenForm.qty} onChange={(e) => setTakenForm({ ...takenForm, qty: e.target.value })} style={{ width: 70 }} />
+        <TextInput placeholder="SKU" value={takenForm.sku} onChange={(e) => setTakenForm({ ...takenForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note" value={takenForm.note} onChange={(e) => setTakenForm({ ...takenForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
         <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
