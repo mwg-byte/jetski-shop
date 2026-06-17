@@ -14,39 +14,48 @@ const ITEMS = [
   ["existing_damage", "Existing Damage"],
 ];
 
-const fi = { border: "none", borderBottom: "1px solid #bbb", background: "transparent", fontFamily: BODY, fontSize: 13, padding: "2px 4px", color: "#111", boxSizing: "border-box" };
+const fi = { border: "none", borderBottom: "1px solid #bbb", background: "transparent", fontFamily: BODY, fontSize: 13, color: "#111", padding: "2px 4px", boxSizing: "border-box" };
 const h3 = { fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: "#111", marginTop: 20, marginBottom: 8, borderBottom: "2px solid #333", paddingBottom: 4 };
+
+const blankUnit = () => ({ machine: { type: "", year: "", make: "", model: "", color: "", vin: "", registration: "", trailer: "", plate: "" }, dropoff: {}, pickup: {} });
+const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
+  ? o.skis
+  : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
+      ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
+      : []);
 
 export default function Inspection({ order, canEdit, onClose }) {
   const { profile } = useAuth();
   const mgr = !!canEdit;
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState("");
-  const [d, setD] = useState({ customer: {}, machine: {}, dropoff: {}, pickup: {}, water_test: "", notes: "" });
+  const [d, setD] = useState({ customer: {}, units: [], water_test: "", notes: "" });
 
   useEffect(() => {
     (async () => {
-      const base = {
-        customer: { name: order.customer_name || "", phone: order.customer_phone || "", email: "", address: "", emergency: "", date: new Date().toLocaleDateString() },
-        machine: { type: "", year: order.year || "", make: order.make || "", model: order.model || "", color: "", vin: order.hull_id || "", trailer: "", plate: "" },
-        dropoff: {}, pickup: {}, water_test: "", notes: "",
-      };
+      const baseCustomer = { name: order.customer_name || "", phone: order.customer_phone || "", email: "", address: "", emergency: "", date: new Date().toLocaleDateString() };
+      const unitFromSki = (s) => ({ machine: { type: "", year: s.year || "", make: s.make || "", model: s.model || "", color: "", vin: s.hull_id || "", registration: s.registration || "", trailer: "", plate: "" }, dropoff: {}, pickup: {} });
       const { data } = await supabase.from("inspections").select("data").eq("order_id", order.id).maybeSingle();
       const saved = data?.data || {};
-      setD({
-        customer: { ...base.customer, ...(saved.customer || {}) },
-        machine: { ...base.machine, ...(saved.machine || {}) },
-        dropoff: saved.dropoff || {},
-        pickup: saved.pickup || {},
-        water_test: saved.water_test || "",
-        notes: saved.notes || "",
-      });
+      let units;
+      if (Array.isArray(saved.units) && saved.units.length) {
+        units = saved.units.map((u) => ({ machine: { ...blankUnit().machine, ...(u.machine || {}) }, dropoff: u.dropoff || {}, pickup: u.pickup || {} }));
+      } else if (saved.machine || saved.dropoff || saved.pickup) {
+        units = [{ machine: { ...blankUnit().machine, ...(saved.machine || {}) }, dropoff: saved.dropoff || {}, pickup: saved.pickup || {} }];
+      } else {
+        const skis = skisOf(order);
+        units = skis.length ? skis.map(unitFromSki) : [blankUnit()];
+      }
+      setD({ customer: { ...baseCustomer, ...(saved.customer || {}) }, units, water_test: saved.water_test || "", notes: saved.notes || "" });
       setReady(true);
     })();
   }, [order.id]);
 
-  const setField = (sec, key, v) => setD((p) => ({ ...p, [sec]: { ...p[sec], [key]: v } }));
-  const setCell = (sec, item, sub, v) => setD((p) => ({ ...p, [sec]: { ...p[sec], [item]: { ...(p[sec]?.[item] || {}), [sub]: v } } }));
+  const setCustomer = (k, v) => setD((p) => ({ ...p, customer: { ...p.customer, [k]: v } }));
+  const setUnitMachine = (i, k, v) => setD((p) => ({ ...p, units: p.units.map((u, idx) => (idx === i ? { ...u, machine: { ...u.machine, [k]: v } } : u)) }));
+  const setUnitCell = (i, sec, item, sub, v) => setD((p) => ({ ...p, units: p.units.map((u, idx) => (idx === i ? { ...u, [sec]: { ...(u[sec] || {}), [item]: { ...((u[sec] || {})[item] || {}), [sub]: v } } } : u)) }));
+  const addUnit = () => setD((p) => ({ ...p, units: [...p.units, blankUnit()] }));
+  const removeUnit = (i) => setD((p) => ({ ...p, units: p.units.filter((_, idx) => idx !== i) }));
 
   async function save() {
     setSaving("Saving…");
@@ -58,15 +67,20 @@ export default function Inspection({ order, canEdit, onClose }) {
     if (!error) setTimeout(() => setSaving(""), 2500);
   }
 
-  const fieldRow = (label, sec, key) => (
+  const custRow = (label, key) => (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
       <span style={{ width: 150, flexShrink: 0, fontWeight: 600, fontSize: 13, fontFamily: BODY, color: "#111" }}>{label}</span>
-      <input value={d[sec][key] || ""} onChange={(e) => setField(sec, key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
+      <input value={d.customer[key] || ""} onChange={(e) => setCustomer(key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
     </div>
   );
-
-  const inspectTable = (sec, condLabel) => (
-    <div style={{ border: "1px solid #ccc", borderRadius: 4, overflow: "hidden" }}>
+  const machRow = (i, label, key) => (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+      <span style={{ width: 150, flexShrink: 0, fontWeight: 600, fontSize: 13, fontFamily: BODY, color: "#111" }}>{label}</span>
+      <input value={d.units[i].machine[key] || ""} onChange={(e) => setUnitMachine(i, key, e.target.value)} readOnly={!mgr} style={{ ...fi, flex: 1 }} />
+    </div>
+  );
+  const inspectTable = (i, sec, condLabel) => (
+    <div style={{ border: "1px solid #ccc", borderRadius: 4, overflow: "hidden", pageBreakInside: "avoid" }}>
       <div style={{ display: "flex", background: "#1f1f1f", color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: BODY }}>
         <span style={{ width: 170, padding: "4px 8px" }}>Inspection Item</span>
         <span style={{ flex: 1, padding: "4px 8px" }}>{condLabel}</span>
@@ -75,13 +89,12 @@ export default function Inspection({ order, canEdit, onClose }) {
       {ITEMS.map(([key, label]) => (
         <div key={key} style={{ display: "flex", borderBottom: "1px solid #eee", alignItems: "center" }}>
           <span style={{ width: 170, padding: "5px 8px", fontSize: 12, fontWeight: 600, fontFamily: BODY, color: "#111" }}>{label}</span>
-          <input value={d[sec][key]?.cond || ""} onChange={(e) => setCell(sec, key, "cond", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Condition" : ""} style={{ ...fi, flex: 1, borderBottom: "none", borderRight: "1px solid #eee" }} />
-          <input value={d[sec][key]?.notes || ""} onChange={(e) => setCell(sec, key, "notes", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Notes / damage" : ""} style={{ ...fi, flex: 2, borderBottom: "none" }} />
+          <input value={(d.units[i][sec][key] || {}).cond || ""} onChange={(e) => setUnitCell(i, sec, key, "cond", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Condition" : ""} style={{ ...fi, flex: 1, borderBottom: "none", borderRight: "1px solid #eee" }} />
+          <input value={(d.units[i][sec][key] || {}).notes || ""} onChange={(e) => setUnitCell(i, sec, key, "notes", e.target.value)} readOnly={!mgr} placeholder={mgr ? "Notes / damage" : ""} style={{ ...fi, flex: 2, borderBottom: "none" }} />
         </div>
       ))}
     </div>
   );
-
   const sigBlock = (label) => (
     <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
       <div style={{ flex: 2 }}>
@@ -95,11 +108,14 @@ export default function Inspection({ order, canEdit, onClose }) {
     </div>
   );
 
+  const many = d.units.length > 1;
+  const suffix = (i) => (many ? ` — Ski ${i + 1}` : "");
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(8,20,30,0.6)", overflow: "auto", padding: 16 }}>
       <style>{`@media print { body * { visibility: hidden !important; } #insp, #insp * { visibility: visible !important; } #insp { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; } .no-print { display: none !important; } }`}</style>
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
-        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
           {mgr && <button onClick={save} style={{ background: C.orange, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Save</button>}
           <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
@@ -117,31 +133,42 @@ export default function Inspection({ order, canEdit, onClose }) {
             </div>
 
             <div style={h3}>Customer Information</div>
-            {fieldRow("Customer Name", "customer", "name")}
-            {fieldRow("Phone Number", "customer", "phone")}
-            {fieldRow("Email Address", "customer", "email")}
-            {fieldRow("Address", "customer", "address")}
-            {fieldRow("Emergency Contact", "customer", "emergency")}
-            {fieldRow("Date", "customer", "date")}
+            {custRow("Customer Name", "name")}
+            {custRow("Phone Number", "phone")}
+            {custRow("Email Address", "email")}
+            {custRow("Address", "address")}
+            {custRow("Emergency Contact", "emergency")}
+            {custRow("Date", "date")}
 
-            <div style={h3}>Machine Information</div>
-            {fieldRow("Type (Boat / Jet Ski)", "machine", "type")}
-            {fieldRow("Year", "machine", "year")}
-            {fieldRow("Make", "machine", "make")}
-            {fieldRow("Model", "machine", "model")}
-            {fieldRow("Color", "machine", "color")}
-            {fieldRow("VIN / Hull ID", "machine", "vin")}
-            {fieldRow("Trailer Included (Yes / No)", "machine", "trailer")}
-            {fieldRow("License Plate #", "machine", "plate")}
+            {d.units.map((u, i) => (
+              <div key={i} style={{ marginTop: i ? 22 : 0, borderTop: i ? "3px solid #111" : "none", paddingTop: i ? 10 : 0 }}>
+                <div style={{ ...h3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Machine Information{suffix(i)}</span>
+                  {mgr && many && <button className="no-print" onClick={() => removeUnit(i)} style={{ fontSize: 12, fontWeight: 600, color: C.red, fontFamily: BODY }}>remove ski</button>}
+                </div>
+                {machRow(i, "Type (Boat / Jet Ski)", "type")}
+                {machRow(i, "Year", "year")}
+                {machRow(i, "Make", "make")}
+                {machRow(i, "Model", "model")}
+                {machRow(i, "Color", "color")}
+                {machRow(i, "VIN / Hull ID", "vin")}
+                {machRow(i, "Registration #", "registration")}
+                {machRow(i, "Trailer Included (Yes / No)", "trailer")}
+                {machRow(i, "License Plate #", "plate")}
 
-            <div style={h3}>Drop-Off Inspection / Condition Report</div>
-            {inspectTable("dropoff", "Condition at Drop-Off")}
+                <div style={h3}>Drop-Off Inspection / Condition Report{suffix(i)}</div>
+                {inspectTable(i, "dropoff", "Condition at Drop-Off")}
 
-            <div style={h3}>Pick-Up Inspection / Condition Report</div>
-            {inspectTable("pickup", "Condition at Pick-Up")}
+                <div style={h3}>Pick-Up Inspection / Condition Report{suffix(i)}</div>
+                {inspectTable(i, "pickup", "Condition at Pick-Up")}
+              </div>
+            ))}
+            {mgr && (
+              <button className="no-print" onClick={addUnit} style={{ marginTop: 12, fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 6, background: C.paleTeal, color: C.teal }}>+ Add another ski</button>
+            )}
 
             <div style={h3}>Water / Operational Testing</div>
-            <div style={{ fontFamily: BODY, fontSize: 13, color: "#111", marginBottom: 8 }}>Does the customer authorize and request water testing / operational testing of the machine?</div>
+            <div style={{ fontFamily: BODY, fontSize: 13, color: "#111", marginBottom: 8 }}>Does the customer authorize and request water testing / operational testing of the machine(s)?</div>
             <div>
               {["yes", "no"].map((v) => (
                 <span key={v} onClick={() => mgr && setD((p) => ({ ...p, water_test: p.water_test === v ? "" : v }))} style={{ cursor: mgr ? "pointer" : "default", marginRight: 28, fontFamily: BODY, fontSize: 15, fontWeight: 600, color: "#111" }}>
@@ -160,7 +187,7 @@ export default function Inspection({ order, canEdit, onClose }) {
             {sigBlock("Customer Signature (Pick-Up)")}
             {sigBlock("Employee Signature (Pick-Up)")}
             <div style={{ fontFamily: BODY, fontSize: 11, fontStyle: "italic", color: "#555", marginTop: 8 }}>
-              By signing above, the customer acknowledges the condition of the machine at the time of drop-off and pick-up. Any existing damage noted at drop-off has been documented.
+              By signing above, the customer acknowledges the condition of the machine(s) at the time of drop-off and pick-up. Any existing damage noted at drop-off has been documented.
             </div>
           </div>
         )}
