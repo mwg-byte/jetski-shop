@@ -106,9 +106,10 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
   );
 }
 
-export const blankSki = () => ({ year: "", make: "", model: "", hull_id: "", registration: "" });
+export const rid = () => "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+export const blankSki = () => ({ id: rid(), year: "", make: "", model: "", hull_id: "", registration: "" });
 export const cleanSkis = (arr) => arr
-  .map((s) => ({ year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim() }))
+  .map((s) => ({ id: s.id || rid(), year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim() }))
   .filter((s) => s.year || s.make || s.model || s.hull_id || s.registration);
 
 export function SkiEditor({ skis, onChange }) {
