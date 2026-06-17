@@ -10,7 +10,12 @@ const boxInp = { fontFamily: BODY, fontSize: 13, color: "#111", border: "none", 
 const bar = { background: DARK, color: "#fff", fontSize: 12, fontWeight: 600, padding: "3px 8px", fontFamily: BODY };
 
 export default function Invoice({ order, parts = [], hours = [], onClose }) {
-  const ski = [order.year, order.make, order.model].filter(Boolean).join(" ");
+  const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
+    ? o.skis
+    : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
+        ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
+        : []);
+  const skis = skisOf(order);
   const totalHrs = round2(hours.reduce((a, h) => a + Number(h.hours), 0));
   const taken = parts.filter((p) => p.kind === "taken");
 
@@ -23,7 +28,12 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
     number: "", date: new Date().toLocaleDateString(), terms: "", customerNum: "", rep: "",
     taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0", notes: "",
   });
-  const billTo = [order.customer_name, order.customer_phone, ski, order.hull_id ? `Hull ${order.hull_id}` : ""].filter(Boolean);
+  const skiLines = skis.map((s) => {
+    const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ");
+    const ids = [s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ");
+    return [lbl, ids].filter(Boolean).join(" — ");
+  }).filter(Boolean);
+  const billTo = [order.customer_name, order.customer_phone, ...skiLines].filter(Boolean);
 
   const setLine = (i, k, v) => setLines(lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)));
   const amount = (l) => (Number(l.qty) || 0) * (Number(l.rate) || 0);
