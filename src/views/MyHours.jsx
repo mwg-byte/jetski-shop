@@ -40,17 +40,25 @@ export default function MyHours({ crew, orders, onBack }) {
   const [hours, setHours] = useState([]);
   const [lake, setLake] = useState([]);
   const [trips, setTrips] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [rate, setRate] = useState(0);
+  const [settings, setSettings] = useState(null);
+  const [showStub, setShowStub] = useState(false);
 
   async function load() {
-    const [s, h, l, t] = await Promise.all([
+    const [s, h, l, t, x, pr] = await Promise.all([
       supabase.from("shifts").select("*").eq("tech_id", who).order("started_at", { ascending: false }),
       supabase.from("hour_entries").select("*").eq("tech_id", who).order("work_date", { ascending: false }),
       supabase.from("lake_tests").select("*").eq("tech_id", who).order("test_date", { ascending: false }),
       supabase.from("trips").select("*").eq("tech_id", who).order("trip_date", { ascending: false }),
+      supabase.from("expenses").select("*").eq("tech_id", who).order("expense_date", { ascending: false }),
+      supabase.from("pay_rates").select("hourly_rate").eq("tech_id", who).maybeSingle(),
     ]);
     setShifts(s.data || []); setHours(h.data || []); setLake(l.data || []); setTrips(t.data || []);
+    setExpenses(x.data || []); setRate(pr.data?.hourly_rate || 0);
   }
   useEffect(() => { load(); }, [who]);
+  useEffect(() => { supabase.from("settings").select("*").maybeSingle().then(({ data }) => setSettings(data || {})); }, []);
 
   const orderOf = (id) => orders.find((o) => o.id === id);
 
@@ -70,6 +78,17 @@ export default function MyHours({ crew, orders, onBack }) {
   const lakeHrs = round2(lakeRows.reduce((a, l) => a + l.seconds, 0) / 3600);
   const tripRows = trips.filter((t) => inWeek(t.trip_date));
   const miles = round2(tripRows.reduce((a, t) => a + Number(t.miles), 0));
+  const expWeek = expenses.filter((x) => inWeek(x.expense_date));
+  const reimb = round2(expWeek.reduce((a, x) => a + Number(x.amount), 0));
+  const otThreshold = settings?.ot_weekly_threshold ?? 40;
+  const otMult = settings?.ot_multiplier ?? 1.5;
+  const mileageRate = settings?.mileage_rate ?? 0.7;
+  const regHrs = round2(Math.min(shiftHrs, otThreshold));
+  const otHrs = round2(Math.max(0, shiftHrs - otThreshold));
+  const regPay = round2(regHrs * rate);
+  const otPay = round2(otHrs * rate * otMult);
+  const mileagePay = round2(miles * mileageRate);
+  const grossPay = round2(regPay + otPay + mileagePay + reimb);
 
   const me = crew.find((c) => c.id === who);
   const TEST_COLOR = { pending: C.slate, passed: C.green, failed: C.red };
@@ -111,11 +130,18 @@ export default function MyHours({ crew, orders, onBack }) {
           {navBtn("‹ Prev week", () => setWeek(addDays(week, -7)), false)}
           {navBtn("Next week ›", () => setWeek(addDays(week, 7)), isThisWeek)}
           {!isThisWeek && navBtn("Jump to this week", () => setWeek(thisWeek), false)}
+          <button onClick={() => setShowStub(true)} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "6px 12px", borderRadius: 6, background: C.teal, color: "#fff", marginLeft: "auto" }}>Pay stub</button>
         </Row>
         <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: C.ink }}>
           {isThisWeek ? "This week" : "Week of"} · {weekLabel}
         </div>
       </div>
+
+      {showStub && (
+        <PayStub name={me?.display_name || "Employee"} period={weekLabel} regHrs={regHrs} otHrs={otHrs} rate={rate} otMult={otMult}
+          regPay={regPay} otPay={otPay} miles={miles} mileageRate={mileageRate} mileagePay={mileagePay}
+          reimbItems={expWeek} reimb={reimb} gross={grossPay} onClose={() => setShowStub(false)} />
+      )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {stat("On shift", shiftHrs, "hrs", C.ink)}
@@ -186,5 +212,69 @@ export default function MyHours({ crew, orders, onBack }) {
         </div>
       )}
     </Card>
+  );
+}
+
+function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, miles, mileageRate, mileagePay, reimbItems, reimb, gross, onClose }) {
+  const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const r = (label, hrs, rt, amt) => (
+    <div style={{ display: "flex", borderBottom: "1px solid #eee" }}>
+      <span style={{ flex: 2, padding: "6px 8px", fontFamily: BODY, fontSize: 13, color: "#111" }}>{label}</span>
+      <span style={{ flex: 1, padding: "6px 8px", textAlign: "right", fontFamily: BODY, fontSize: 13, color: "#111" }}>{hrs}</span>
+      <span style={{ flex: 1, padding: "6px 8px", textAlign: "right", fontFamily: BODY, fontSize: 13, color: "#111" }}>{rt}</span>
+      <span style={{ flex: 1, padding: "6px 8px", textAlign: "right", fontFamily: BODY, fontSize: 13, color: "#111" }}>{money(amt)}</span>
+    </div>
+  );
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(8,20,30,0.6)", overflow: "auto", padding: 16 }}>
+      <style>{`@media print { body * { visibility: hidden !important; } #stub, #stub * { visibility: visible !important; } #stub { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; } .no-print { display: none !important; } }`}</style>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
+          <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
+        </div>
+        <div id="stub" style={{ background: "#fff", padding: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+          <div style={{ textAlign: "center", marginBottom: 10 }}>
+            <div style={{ fontFamily: DISPLAY, fontSize: 22, fontWeight: 700, color: "#111" }}>High Country Powersports</div>
+            <div style={{ fontFamily: BODY, fontSize: 14, fontWeight: 600, color: "#111" }}>Pay Stub</div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontFamily: BODY, fontSize: 13, color: "#111", marginBottom: 12 }}>
+            <span><b>Employee:</b> {name}</span>
+            <span><b>Pay period:</b> {period}</span>
+          </div>
+          <div style={{ border: "1px solid #ccc", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ display: "flex", background: "#1f1f1f", color: "#fff", fontFamily: BODY, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              <span style={{ flex: 2, padding: "5px 8px" }}>Earnings</span>
+              <span style={{ flex: 1, padding: "5px 8px", textAlign: "right" }}>Hours</span>
+              <span style={{ flex: 1, padding: "5px 8px", textAlign: "right" }}>Rate</span>
+              <span style={{ flex: 1, padding: "5px 8px", textAlign: "right" }}>Amount</span>
+            </div>
+            {r("Regular", regHrs, money(rate), regPay)}
+            {otHrs > 0 && r("Overtime", otHrs, money(round2(rate * otMult)), otPay)}
+            {r("Mileage", `${miles} mi`, money(mileageRate), mileagePay)}
+            {reimb > 0 && r("Reimbursements", "—", "—", reimb)}
+            <div style={{ display: "flex", background: "#F6F8F9" }}>
+              <span style={{ flex: 4, padding: "8px", fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: "#111" }}>Gross pay</span>
+              <span style={{ flex: 1, padding: "8px", textAlign: "right", fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: "#111" }}>{money(gross)}</span>
+            </div>
+          </div>
+          {reimbItems.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontFamily: BODY, fontSize: 12, fontWeight: 700, color: "#111", marginBottom: 4 }}>Reimbursement detail</div>
+              {reimbItems.map((x) => (
+                <div key={x.id} style={{ display: "flex", justifyContent: "space-between", fontFamily: BODY, fontSize: 12, color: "#333", padding: "2px 0" }}>
+                  <span>{fmtDate(x.expense_date)} — {x.description}</span>
+                  <span>{money(x.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {!rate && <p style={{ fontFamily: BODY, fontSize: 12, color: "#B23A48", marginTop: 12 }}>No hourly rate set for this employee yet — pay shows $0. Set it in the Crew screen.</p>}
+          <p style={{ fontFamily: BODY, fontSize: 11, color: "#555", marginTop: 14 }}>
+            Gross earnings summary for the period shown. This statement does not reflect tax withholding or other deductions.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
