@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { C, DISPLAY, BODY, round2 } from "../lib/supabase";
+import { useState, useEffect } from "react";
+import { supabase, C, DISPLAY, BODY, round2 } from "../lib/supabase";
 
 const RED = "#B23A48";
 const DARK = "#1f1f1f";
@@ -19,11 +19,21 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
   const totalHrs = round2(hours.reduce((a, h) => a + Number(h.hours), 0));
   const taken = parts.filter((p) => p.kind === "taken");
 
-  const init = [
-    ...taken.map((p) => ({ desc: p.name, qty: String(p.qty), rate: "", tax: true })),
-    { desc: "Labor", qty: String(totalHrs || ""), rate: "", tax: false },
-  ];
-  const [lines, setLines] = useState(init);
+  const [lines, setLines] = useState([]);
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("repair_orders").select("data").eq("order_id", order.id).maybeSingle();
+      const rlines = (data?.data?.lines || []).filter((l) => (l.name || "").trim() || Number(l.price) > 0);
+      let init;
+      if (rlines.length) {
+        init = rlines.map((l) => ({ desc: [l.part_no, l.name].filter(Boolean).join(" — ") || l.name || "", qty: String(l.qty || "1"), rate: String(l.price || ""), tax: true }));
+      } else {
+        init = taken.map((p) => ({ desc: p.name, qty: String(p.qty), rate: "", tax: true }));
+      }
+      init.push({ desc: "Labor", qty: String(totalHrs || ""), rate: "", tax: false });
+      setLines(init);
+    })();
+  }, [order.id]);
   const [m, setM] = useState({
     number: "", date: new Date().toLocaleDateString(), terms: "", customerNum: "", rep: "",
     taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0", notes: "",
