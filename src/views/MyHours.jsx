@@ -6,16 +6,22 @@ import { useAuth } from "../AuthContext";
 const DAY = 86400000;
 
 /* Monday-start week containing date d (Date or ISO string) -> ISO yyyy-mm-dd of that Monday */
+function ymdLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
 function weekStart(d) {
   const date = new Date(typeof d === "string" ? d + "T12:00:00" : d);
   const day = (date.getDay() + 6) % 7; // 0 = Monday
   date.setDate(date.getDate() - day);
-  return date.toISOString().slice(0, 10);
+  return ymdLocal(date);
 }
 function addDays(iso, n) {
   const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return ymdLocal(d);
 }
 
 const skiLabel = (o) => {
@@ -100,15 +106,16 @@ export default function MyHours({ crew, orders, onBack }) {
         </Row>
       )}
 
-      <SectionTitle right={
-        <Row style={{ gap: 6 }}>
-          {navBtn("‹ Prev", () => setWeek(addDays(week, -7)), false)}
-          {!isThisWeek && navBtn("This week", () => setWeek(thisWeek), false)}
-          {navBtn("Next ›", () => setWeek(addDays(week, 7)), isThisWeek)}
+      <div style={{ marginTop: 18 }}>
+        <Row style={{ gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          {navBtn("‹ Prev week", () => setWeek(addDays(week, -7)), false)}
+          {navBtn("Next week ›", () => setWeek(addDays(week, 7)), isThisWeek)}
+          {!isThisWeek && navBtn("Jump to this week", () => setWeek(thisWeek), false)}
         </Row>
-      }>
-        {isThisWeek ? "This week" : "Week of"} · {weekLabel}
-      </SectionTitle>
+        <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: C.ink }}>
+          {isThisWeek ? "This week" : "Week of"} · {weekLabel}
+        </div>
+      </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {stat("On shift", shiftHrs, "hrs", C.ink)}
