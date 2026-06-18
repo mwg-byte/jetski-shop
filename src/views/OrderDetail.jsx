@@ -224,7 +224,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
   const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
   const [editPartId, setEditPartId] = useState(null);
-  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
+  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", status: "requested", eta: "" });
   const [noteText, setNoteText] = useState("");
   const [noteSki, setNoteSki] = useState("");
   const [mediaSki, setMediaSki] = useState("");
@@ -296,12 +296,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   function startEditPart(p) {
     setEditPartId(p.id);
-    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "" });
+    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "", status: p.status || "requested", eta: p.eta || "" });
   }
   async function saveEditPart(p) {
     const name = editPartVals.name.trim();
     if (!name) return;
-    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null };
+    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null, status: editPartVals.status, eta: editPartVals.status === "ordered" ? (editPartVals.eta || null) : null };
     setParts(parts.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setEditPartId(null);
     await supabase.from("parts").update(patch).eq("id", p.id);
@@ -485,6 +485,14 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note / supplier" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
                   {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
+                  {isMgr && (
+                    <Select value={editPartVals.status} onChange={(e) => setEditPartVals({ ...editPartVals, status: e.target.value })} style={{ width: "auto" }}>
+                      {PART_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                    </Select>
+                  )}
+                  {isMgr && editPartVals.status === "ordered" && (
+                    <TextInput type="date" value={editPartVals.eta} onChange={(e) => setEditPartVals({ ...editPartVals, eta: e.target.value })} style={{ width: "auto" }} />
+                  )}
                 </Row>
                 <Row style={{ marginTop: 8 }}>
                   <button onClick={() => saveEditPart(p)} style={btnSm(C.teal)}>Save</button>
@@ -498,6 +506,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
+                {p.status === "ordered" && p.eta && <span style={{ fontSize: 11, fontWeight: 700, color: C.orange, fontFamily: BODY }}>ETA {fmtDate(p.eta)}</span>}
                 <button onClick={() => receivePart(p)} style={btnSm(C.green)}>✓ Received</button>
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
                 <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
