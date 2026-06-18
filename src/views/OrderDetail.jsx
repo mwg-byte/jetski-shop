@@ -4,7 +4,7 @@ import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, btn
 import { useAuth } from "../AuthContext";
 import Invoice from "./Invoice";
 import Inspection from "./Inspection";
-import { SkiEditor, blankSki, cleanSkis } from "./WorkOrders";
+import { SkiEditor, blankSki, cleanSkis, rid } from "./WorkOrders";
 import RepairOrder from "./RepairOrder";
 
 const nameOf = (crew, id) => crew.find((t) => t.id === id)?.display_name || "—";
@@ -46,7 +46,13 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       supabase.from("order_assignees").select("tech_id").eq("order_id", orderId),
       supabase.from("order_notes").select("*").eq("order_id", orderId).order("created_at", { ascending: false }),
     ]);
-    setOrder(o.data); setHours(h.data || []); setSessions(s.data || []); setParts(p.data || []);
+    let ord = o.data;
+    if (ord && Array.isArray(ord.skis) && ord.skis.length > 1 && ord.skis.some((k) => !k.id)) {
+      const withIds = ord.skis.map((k) => (k.id ? k : { ...k, id: rid() }));
+      await supabase.from("work_orders").update({ skis: withIds }).eq("id", orderId);
+      ord = { ...ord, skis: withIds };
+    }
+    setOrder(ord); setHours(h.data || []); setSessions(s.data || []); setParts(p.data || []);
     setMedia(m.data || []); setLakeTests(lt.data || []); setLakeSession(ls.data || null);
     setAssignees((oa.data || []).map((r) => r.tech_id));
     setNotes(no.data || []);
@@ -70,7 +76,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
   function openDetails() {
-    const sk = skisOf(order).map((s) => ({ year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "" }));
+    const sk = skisOf(order).map((s) => ({ id: s.id, year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "" }));
     setDetForm({
       customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
       issue: order.issue || "", skis: sk.length ? sk : [blankSki()],
@@ -214,12 +220,14 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
 /* ================= JOB TAB ================= */
 function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
-  const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "" });
-  const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "" });
-  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "" });
+  const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "", ski_id: "" });
+  const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
+  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
   const [editPartId, setEditPartId] = useState(null);
-  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "" });
+  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
   const [noteText, setNoteText] = useState("");
+  const [noteSki, setNoteSki] = useState("");
+  const [mediaSki, setMediaSki] = useState("");
   const [editHourId, setEditHourId] = useState(null);
   const [editHourVals, setEditHourVals] = useState({ hours: "", work_date: "" });
   const [clockTech, setClockTech] = useState(profile.id);
@@ -251,18 +259,18 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   async function addPart() {
     if (!partForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, sku: partForm.sku.trim(), note: partForm.note.trim(), kind: "request" }).select().single();
-    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", sku: "", note: "" }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, sku: partForm.sku.trim(), note: partForm.note.trim(), ski_id: partForm.ski_id || null, kind: "request" }).select().single();
+    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", sku: "", note: "", ski_id: partForm.ski_id }); }
   }
   async function addTaken() {
     if (!takenForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), kind: "taken" }).select().single();
-    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "" }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), ski_id: takenForm.ski_id || null, kind: "taken" }).select().single();
+    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "", ski_id: takenForm.ski_id }); }
   }
   async function addNote() {
     const body = noteText.trim();
     if (!body) return;
-    const { data } = await supabase.from("order_notes").insert({ order_id: orderId, author_id: profile.id, body }).select().single();
+    const { data } = await supabase.from("order_notes").insert({ order_id: orderId, author_id: profile.id, body, ski_id: noteSki || null }).select().single();
     if (data) { setNotes([data, ...notes]); setNoteText(""); }
   }
   async function removeNote(n) {
@@ -288,12 +296,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   function startEditPart(p) {
     setEditPartId(p.id);
-    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "" });
+    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "" });
   }
   async function saveEditPart(p) {
     const name = editPartVals.name.trim();
     if (!name) return;
-    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim() };
+    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null };
     setParts(parts.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setEditPartId(null);
     await supabase.from("parts").update(patch).eq("id", p.id);
@@ -313,7 +321,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       const path = `${orderId}/${Date.now()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
       const { error } = await supabase.storage.from("job-media").upload(path, file);
       if (!error) {
-        const { data } = await supabase.from("media").insert({ order_id: orderId, path, kind, name: file.name }).select().single();
+        const { data } = await supabase.from("media").insert({ order_id: orderId, path, kind, name: file.name, ski_id: mediaSki || null }).select().single();
         if (data) setMedia((m) => [...m, data]);
       }
     }
@@ -328,6 +336,16 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
 
   const requests = parts.filter((p) => (p.kind || "request") === "request");
   const taken = parts.filter((p) => p.kind === "taken");
+  const orderSkis = order.kind !== "maintenance" && Array.isArray(order.skis) ? order.skis : [];
+  const multiSki = orderSkis.length > 1;
+  const skiName = (id) => { if (!id) return null; const s = orderSkis.find((k) => (k.id || "") === id); return s ? (skiLabel(s) || "Ski") : null; };
+  const skiChip = (id) => { const nm = skiName(id); return nm ? <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal, fontFamily: BODY }}>{nm}</span> : null; };
+  const SkiPick = ({ value, onChange }) => (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "auto", minWidth: 120 }}>
+      <option value="">All / general</option>
+      {orderSkis.map((s, i) => <option key={s.id || i} value={s.id || ""}>{skiLabel(s) || `Ski ${i + 1}`}</option>)}
+    </Select>
+  );
 
   return (
     <>
@@ -398,7 +416,10 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
           {notes.map((n) => (
             <div key={n.id} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
               <Row style={{ justifyContent: "space-between" }}>
-                <span style={{ fontWeight: 600, color: C.ink, fontSize: 13 }}>{nameOf(crew, n.author_id)}</span>
+                <Row style={{ gap: 8, alignItems: "center" }}>
+                  <span style={{ fontWeight: 600, color: C.ink, fontSize: 13 }}>{nameOf(crew, n.author_id)}</span>
+                  {skiChip(n.ski_id)}
+                </Row>
                 <Row style={{ gap: 8 }}>
                   <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(n.created_at)}</span>
                   {(isMgr || n.author_id === profile.id) && <button onClick={() => removeNote(n)} style={{ fontSize: 12, color: C.red }}>remove</button>}
@@ -411,6 +432,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       )}
       <Row>
         <TextInput placeholder="Add a note — found cracked impeller, customer approved…" value={noteText} onChange={(e) => setNoteText(e.target.value)} style={{ flex: 1, minWidth: 180 }} />
+        {multiSki && <SkiPick value={noteSki} onChange={setNoteSki} />}
         <button onClick={addNote} style={btn(C.teal)}>Add note</button>
       </Row>
 
@@ -427,10 +449,11 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 <button onClick={() => setEditHourId(null)} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
               </Row>
             ) : (
-              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+              <Row key={h.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(crew, h.tech_id)}</span>
                 <span style={{ color: C.slate }}>{fmtDate(h.work_date)}</span>
                 <span style={{ fontWeight: 700, color: h.clocked ? C.orange : C.teal }}>{h.hours} hrs</span>
+                {skiChip(h.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{h.note}</span>
                 {isMgr && <button onClick={() => startEditHour(h)} style={{ fontSize: 12, color: C.teal }}>edit</button>}
                 <button onClick={async () => { setHours(hours.filter((x) => x.id !== h.id)); await supabase.from("hour_entries").delete().eq("id", h.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
@@ -446,6 +469,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="date" value={hourForm.work_date} onChange={(e) => setHourForm({ ...hourForm, work_date: e.target.value })} style={{ width: "auto" }} />
         <TextInput type="number" step="0.25" min="0" placeholder="1.5" value={hourForm.hours} onChange={(e) => setHourForm({ ...hourForm, hours: e.target.value })} style={{ width: 80 }} />
         <TextInput placeholder="Note" value={hourForm.note} onChange={(e) => setHourForm({ ...hourForm, note: e.target.value })} style={{ flex: 1, minWidth: 140 }} />
+        {multiSki && <SkiPick value={hourForm.ski_id} onChange={(v) => setHourForm({ ...hourForm, ski_id: v })} />}
         <button onClick={addHours} style={btn(C.teal)}>Log hours</button>
       </Row>
 
@@ -460,6 +484,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note / supplier" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                  {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
                 </Row>
                 <Row style={{ marginTop: 8 }}>
                   <button onClick={() => saveEditPart(p)} style={btnSm(C.teal)}>Save</button>
@@ -470,6 +495,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
                 {p.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {p.sku}</span>}
+                {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
                 <button onClick={() => receivePart(p)} style={btnSm(C.green)}>✓ Received</button>
@@ -485,6 +511,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="number" min="1" value={partForm.qty} onChange={(e) => setPartForm({ ...partForm, qty: e.target.value })} style={{ width: 70 }} />
         <TextInput placeholder="SKU" value={partForm.sku} onChange={(e) => setPartForm({ ...partForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note / supplier" value={partForm.note} onChange={(e) => setPartForm({ ...partForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        {multiSki && <SkiPick value={partForm.ski_id} onChange={(v) => setPartForm({ ...partForm, ski_id: v })} />}
         <button onClick={addPart} style={btn(C.teal)}>Request part</button>
       </Row>
 
@@ -499,6 +526,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                  {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
                 </Row>
                 <Row style={{ marginTop: 8 }}>
                   <button onClick={() => saveEditPart(p)} style={btnSm(C.teal)}>Save</button>
@@ -509,6 +537,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               <Row key={p.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontWeight: 600, color: C.ink }}>{p.qty}× {p.name}</span>
                 {p.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {p.sku}</span>}
+                {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
@@ -523,10 +552,17 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="number" min="1" value={takenForm.qty} onChange={(e) => setTakenForm({ ...takenForm, qty: e.target.value })} style={{ width: 70 }} />
         <TextInput placeholder="SKU" value={takenForm.sku} onChange={(e) => setTakenForm({ ...takenForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note" value={takenForm.note} onChange={(e) => setTakenForm({ ...takenForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        {multiSki && <SkiPick value={takenForm.ski_id} onChange={(v) => setTakenForm({ ...takenForm, ski_id: v })} />}
         <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
 
       <SectionTitle>Photos & video</SectionTitle>
+      {multiSki && (
+        <Row style={{ marginBottom: 10, alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.slate, fontFamily: BODY }}>For ski</span>
+          <SkiPick value={mediaSki} onChange={setMediaSki} />
+        </Row>
+      )}
       <label style={{ ...btn(C.orange), display: "inline-block", marginBottom: 10, cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
         {uploading ? "Uploading…" : "+ Add photos / video"}
         <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }} onChange={uploadFiles} />
@@ -543,6 +579,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   : <img src={publicUrl(m.path)} alt={m.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
               </div>
               <button onClick={() => removeMedia(m)} style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 999, fontSize: 11, color: "#fff", background: C.red }}>✕</button>
+              {skiName(m.ski_id) && <div style={{ position: "absolute", bottom: 4, left: 4, right: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: "#fff", background: "rgba(8,20,30,0.7)", borderRadius: 4, padding: "1px 4px", textAlign: "center", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{skiName(m.ski_id)}</div>}
             </div>
           ))}
         </div>
