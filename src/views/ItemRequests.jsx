@@ -15,7 +15,7 @@ export default function ItemRequests({ crew, onBack }) {
   const [reqs, setReqs] = useState([]);
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState({ name: "", qty: "1", note: "" });
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(true);
   const [showRecv, setShowRecv] = useState(false);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
@@ -65,6 +65,7 @@ export default function ItemRequests({ crew, onBack }) {
           <button onClick={() => togglePurchased(it)} title={isDone ? "Mark not purchased" : "Mark purchased"} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${isDone ? C.green : C.line}`, background: isDone ? C.green : "#fff", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{isDone ? "✓" : ""}</button>
           <span style={{ fontWeight: 600, color: C.ink, textDecoration: isDone ? "line-through" : "none" }}>{it.qty}× {it.name}</span>
           <span style={{ flex: 1, color: C.slate }}>{it.note}</span>
+          {isDone && it.purchased_at && <span style={{ fontSize: 12, fontWeight: 600, color: C.green }}>bought {fmtDate(it.purchased_at)}</span>}
           <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.requested_by)} · {fmtDate(it.created_at)}</span>
           {(profile.id === it.requested_by || ["owner", "manager"].includes(profile.role)) && (
             <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>
