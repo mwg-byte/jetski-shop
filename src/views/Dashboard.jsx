@@ -6,6 +6,7 @@ import { useAuth } from "../AuthContext";
 export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread, onOpen }) {
   const { profile } = useAuth();
   const [msgs, setMsgs] = useState([]);
+  const [sentMsgs, setSentMsgs] = useState([]);
   const [to, setTo] = useState("");
   const [body, setBody] = useState("");
   const [sent, setSent] = useState("");
@@ -16,7 +17,12 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
     const { data } = await supabase.from("dashboard_messages").select("*").eq("recipient_id", profile.id).order("created_at", { ascending: false });
     setMsgs(data || []);
   }
-  useEffect(() => { loadMsgs(); }, []);
+  async function loadSent() {
+    if (!mgr) return;
+    const { data } = await supabase.from("dashboard_messages").select("*").eq("sender_id", profile.id).order("created_at", { ascending: false });
+    setSentMsgs(data || []);
+  }
+  useEffect(() => { loadMsgs(); loadSent(); }, []);
 
   const unreadCount = msgs.filter((m) => !m.read).length;
   useEffect(() => { onUnread?.(unreadCount); }, [unreadCount]);
@@ -31,7 +37,7 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
     const { error } = await supabase.from("dashboard_messages").insert(rows);
     if (error) { setSent("Couldn't send — try again"); return; }
     setBody(""); setTo(""); setSent("Sent ✓");
-    loadMsgs();
+    loadMsgs(); loadSent();
     setTimeout(() => setSent(""), 2500);
   }
   async function setRead(m, read) {
@@ -48,6 +54,21 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
     setMsgs(msgs.filter((x) => x.id !== m.id));
     await supabase.from("dashboard_messages").delete().eq("id", m.id);
   }
+  async function removeBatch(b) {
+    setSentMsgs(sentMsgs.filter((x) => !b.ids.includes(x.id)));
+    await supabase.from("dashboard_messages").delete().in("id", b.ids);
+  }
+  const sentBatches = (() => {
+    const map = new Map();
+    for (const m of sentMsgs) {
+      const key = `${m.created_at}|${m.body}`;
+      if (!map.has(key)) map.set(key, { key, body: m.body, created_at: m.created_at, ids: [], recipients: [], readCount: 0 });
+      const b = map.get(key);
+      b.ids.push(m.id); b.recipients.push(m.recipient_id); if (m.read) b.readCount++;
+    }
+    return [...map.values()];
+  })();
+  const recipLabel = (b) => b.recipients.length === 1 ? nameOf(b.recipients[0]) : (b.recipients.length >= crew.length ? "Everyone" : `${b.recipients.length} people`);
 
   return (
     <>
@@ -71,6 +92,31 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
             <button onClick={send} disabled={!to || !body.trim()} style={{ ...btn(C.teal), opacity: !to || !body.trim() ? 0.4 : 1 }}>Send</button>
           </Row>
           {sent && <div style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY, marginTop: 6 }}>{sent}</div>}
+        </Card>
+      )}
+
+      {mgr && (
+        <Card style={{ marginTop: 12 }}>
+          <SectionTitle>Sent</SectionTitle>
+          {sentBatches.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>You haven't sent any messages yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {sentBatches.map((b) => (
+                <div key={b.key} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: "#fff" }}>
+                  <Row style={{ justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>To: {recipLabel(b)}</span>
+                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(b.created_at)}</span>
+                  </Row>
+                  <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap" }}>{b.body}</div>
+                  <Row style={{ gap: 12 }}>
+                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>Read by {b.readCount}/{b.ids.length}</span>
+                    <button onClick={() => removeBatch(b)} style={{ fontSize: 12, color: C.red, fontFamily: BODY }}>delete</button>
+                  </Row>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
