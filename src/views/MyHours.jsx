@@ -31,7 +31,8 @@ const skiLabel = (o) => {
 };
 
 export default function MyHours({ crew, orders, onBack }) {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
+  const myEmail = session?.user?.email || "";
   const mgr = isManager(profile.role);
   const [who, setWho] = useState(profile.id);
   const thisWeek = weekStart(new Date());
@@ -90,6 +91,42 @@ export default function MyHours({ crew, orders, onBack }) {
   const mileagePay = round2(miles * mileageRate);
   const grossPay = round2(regPay + otPay + mileagePay + reimb);
 
+  const exportBtn = { fontFamily: BODY, fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 6, background: "#F1F4F6", color: C.ink };
+  function download(name, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function weekCsv() {
+    const esc = (c) => `"${String(c ?? "").replace(/"/g, '""')}"`;
+    const rows = [["Type", "Date", "Detail", "Hours/Miles"]];
+    shiftRows.forEach((s) => rows.push(["Shift", fmtDate(s.started_at), `${fmtTime(s.started_at)}-${fmtTime(s.ended_at)}`, round2((new Date(s.ended_at) - new Date(s.started_at)) / 3600000)]));
+    hourRows.forEach((h) => rows.push(["Job", fmtDate(h.work_date), skiLabel(orderOf(h.order_id)) + (h.note ? ` (${h.note})` : ""), round2(Number(h.hours))]));
+    lakeRows.forEach((l) => rows.push(["Lake test", fmtDate(l.test_date), skiLabel(orderOf(l.order_id)), round2(l.seconds / 3600)]));
+    tripRows.forEach((t) => rows.push(["Mileage", fmtDate(t.trip_date), t.purpose || "Trip", round2(Number(t.miles))]));
+    rows.push(["", "", "", ""]);
+    rows.push(["Total", "", "On-shift hrs", shiftHrs]);
+    rows.push(["Total", "", "Job hrs", jobHrs]);
+    rows.push(["Total", "", "Lake hrs", lakeHrs]);
+    rows.push(["Total", "", "Miles", miles]);
+    return rows.map((r) => r.map(esc).join(",")).join("\n");
+  }
+  function downloadCsv() {
+    download(`hours_${(me?.display_name || "me").replace(/\s+/g, "_")}_${week}.csv`, weekCsv(), "text/csv");
+  }
+  function emailHours() {
+    const subject = `Hours — ${me?.display_name || "me"} — ${weekLabel}`;
+    const block = (label, lines2) => lines2.length ? `${label}:\n${lines2.join("\n")}\n\n` : "";
+    const body =
+      `Week of ${weekLabel}\n\n` +
+      `On-shift: ${shiftHrs} hrs\nJob time: ${jobHrs} hrs\nLake testing: ${lakeHrs} hrs\nMileage: ${miles} mi\n\n` +
+      block("Shifts", shiftRows.map((s) => `  ${fmtDate(s.started_at)}  ${fmtTime(s.started_at)}-${fmtTime(s.ended_at)}  ${round2((new Date(s.ended_at) - new Date(s.started_at)) / 3600000)} hrs`)) +
+      block("Job time", hourRows.map((h) => `  ${fmtDate(h.work_date)}  ${skiLabel(orderOf(h.order_id))}  ${round2(Number(h.hours))} hrs`)) +
+      block("Lake testing", lakeRows.map((l) => `  ${fmtDate(l.test_date)}  ${skiLabel(orderOf(l.order_id))}  ${round2(l.seconds / 60)} min`)) +
+      block("Mileage", tripRows.map((t) => `  ${fmtDate(t.trip_date)}  ${t.purpose || "Trip"}  ${round2(Number(t.miles))} mi`));
+    window.location.href = `mailto:${myEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
   const me = crew.find((c) => c.id === who);
   const TEST_COLOR = { pending: C.slate, passed: C.green, failed: C.red };
   const isThisWeek = week === thisWeek;
@@ -140,7 +177,7 @@ export default function MyHours({ crew, orders, onBack }) {
       {showStub && (
         <PayStub name={me?.display_name || "Employee"} period={weekLabel} regHrs={regHrs} otHrs={otHrs} rate={rate} otMult={otMult}
           regPay={regPay} otPay={otPay} miles={miles} mileageRate={mileageRate} mileagePay={mileagePay}
-          reimbItems={expWeek} reimb={reimb} gross={grossPay} onClose={() => setShowStub(false)} />
+          reimbItems={expWeek} reimb={reimb} gross={grossPay} email={myEmail} onClose={() => setShowStub(false)} />
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -149,6 +186,12 @@ export default function MyHours({ crew, orders, onBack }) {
         {stat("Lake testing", lakeHrs, "hrs", C.water)}
         {stat("Mileage", miles, "mi", C.orange)}
       </div>
+
+      <Row style={{ gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Export this week</span>
+        <button onClick={downloadCsv} style={exportBtn}>Download CSV</button>
+        <button onClick={emailHours} style={exportBtn}>Email to me</button>
+      </Row>
 
       <SectionTitle>Shifts</SectionTitle>
       {shiftRows.length === 0 ? (
@@ -215,8 +258,17 @@ export default function MyHours({ crew, orders, onBack }) {
   );
 }
 
-function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, miles, mileageRate, mileagePay, reimbItems, reimb, gross, onClose }) {
+function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, miles, mileageRate, mileagePay, reimbItems, reimb, gross, email, onClose }) {
   const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  function emailStub() {
+    const subject = `Pay stub — ${name} — ${period}`;
+    const lines = ["High Country Powersports — Pay Stub", `Employee: ${name}`, `Pay period: ${period}`, "", `Regular: ${regHrs} hrs @ ${money(rate)} = ${money(regPay)}`];
+    if (otHrs > 0) lines.push(`Overtime: ${otHrs} hrs = ${money(otPay)}`);
+    lines.push(`Mileage: ${miles} mi @ ${money(mileageRate)} = ${money(mileagePay)}`);
+    if (reimb > 0) lines.push(`Reimbursements: ${money(reimb)}`);
+    lines.push("", `Gross pay: ${money(gross)}`, "", "Gross earnings summary; does not reflect tax withholding or other deductions.");
+    window.location.href = `mailto:${email || ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+  }
   const r = (label, hrs, rt, amt) => (
     <div style={{ display: "flex", borderBottom: "1px solid #eee" }}>
       <span style={{ flex: 2, padding: "6px 8px", fontFamily: BODY, fontSize: 13, color: "#111" }}>{label}</span>
@@ -229,8 +281,9 @@ function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, mil
     <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(8,20,30,0.6)", overflow: "auto", padding: 16 }}>
       <style>{`@media print { body * { visibility: hidden !important; } #stub, #stub * { visibility: visible !important; } #stub { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; } .no-print { display: none !important; } }`}</style>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
           <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
+          <button onClick={emailStub} style={{ background: "#fff", color: C.teal, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Email to me</button>
           <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
         </div>
         <div id="stub" style={{ background: "#fff", padding: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
