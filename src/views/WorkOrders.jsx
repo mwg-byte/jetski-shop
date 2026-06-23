@@ -88,7 +88,7 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
                       ) : (
                         <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}{Array.isArray(o.skis) && o.skis.length > 1 ? ` +${o.skis.length - 1} more` : ""}</span>
                       )}
-                      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2 }}>{o.issue}</div>
+                      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2, whiteSpace: "pre-line" }}>{o.issue}</div>
                     </div>
                     <StatusChip status={o.status} />
                   </Row>
@@ -107,10 +107,10 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
 }
 
 export const rid = () => "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-export const blankSki = () => ({ id: rid(), year: "", make: "", model: "", hull_id: "", registration: "" });
+export const blankSki = () => ({ id: rid(), year: "", make: "", model: "", hull_id: "", registration: "", issue: "" });
 export const cleanSkis = (arr) => arr
-  .map((s) => ({ id: s.id || rid(), year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim() }))
-  .filter((s) => s.year || s.make || s.model || s.hull_id || s.registration);
+  .map((s) => ({ id: s.id || rid(), year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim(), issue: (s.issue || "").trim() }))
+  .filter((s) => s.year || s.make || s.model || s.hull_id || s.registration || s.issue);
 
 export function SkiEditor({ skis, onChange }) {
   const setSki = (i, k, v) => onChange(skis.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
@@ -131,6 +131,10 @@ export function SkiEditor({ skis, onChange }) {
             <div><Label>HIN (Hull ID)</Label><TextInput value={s.hull_id} onChange={(e) => setSki(i, "hull_id", e.target.value)} /></div>
             <div><Label>Registration #</Label><TextInput value={s.registration} onChange={(e) => setSki(i, "registration", e.target.value)} /></div>
           </div>
+          <div style={{ marginTop: 10 }}>
+            <Label>Issue / work needed</Label>
+            <textarea value={s.issue || ""} onChange={(e) => setSki(i, "issue", e.target.value)} rows={2} placeholder="What's wrong / what to do on this ski" style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD", boxSizing: "border-box" }} />
+          </div>
         </div>
       ))}
       <button onClick={addSki} style={{ marginTop: 8, fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 6, background: C.paleTeal, color: C.teal }}>+ Add ski</button>
@@ -139,7 +143,7 @@ export function SkiEditor({ skis, onChange }) {
 }
 
 export function NewOrderForm({ onDone, onCancel, nextPriority }) {
-  const [f, setF] = useState({ customer_name: "", customer_phone: "", issue: "" });
+  const [f, setF] = useState({ customer_name: "", customer_phone: "" });
   const [skis, setSkis] = useState([blankSki()]);
   const [err, setErr] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -147,8 +151,11 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
   async function create() {
     const list = cleanSkis(skis);
     const s0 = list[0] || {};
+    const issue = list.length > 1
+      ? list.map((s) => { const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ") || "Ski"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
+      : (s0.issue || "");
     const { data, error } = await supabase.from("work_orders").insert({
-      customer_name: f.customer_name, customer_phone: f.customer_phone, issue: f.issue, priority: nextPriority,
+      customer_name: f.customer_name, customer_phone: f.customer_phone, issue, priority: nextPriority,
       skis: list, year: s0.year || "", make: s0.make || "", model: s0.model || "", hull_id: s0.hull_id || "", registration: s0.registration || "",
     }).select().single();
     if (error) setErr(error.message);
@@ -166,13 +173,9 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
         <Label>Skis</Label>
         <SkiEditor skis={skis} onChange={setSkis} />
       </div>
-      <div style={{ marginTop: 12 }}>
-        <Label>Issue description *</Label>
-        <textarea value={f.issue} onChange={set("issue")} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} />
-      </div>
       {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{err}</div>}
       <Row style={{ marginTop: 16 }}>
-        <button disabled={!f.customer_name.trim() || !f.issue.trim()} onClick={create} style={{ ...btn(C.orange), opacity: !f.customer_name.trim() || !f.issue.trim() ? 0.4 : 1 }}>Create work order</button>
+        <button disabled={!f.customer_name.trim() || !skis.some((s) => (s.issue || "").trim())} onClick={create} style={{ ...btn(C.orange), opacity: !f.customer_name.trim() || !skis.some((s) => (s.issue || "").trim()) ? 0.4 : 1 }}>Create work order</button>
         <button onClick={onCancel} style={{ fontSize: 14, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Cancel</button>
       </Row>
     </Card>
