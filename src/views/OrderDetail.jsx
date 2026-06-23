@@ -76,7 +76,8 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
   function openDetails() {
-    const sk = skisOf(order).map((s) => ({ id: s.id, year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "" }));
+    const sk = skisOf(order).map((s) => ({ id: s.id, year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "", issue: s.issue || "" }));
+    if (sk.length && !sk.some((s) => s.issue) && (order.issue || "").trim()) sk[0].issue = order.issue;
     setDetForm({
       customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
       issue: order.issue || "", skis: sk.length ? sk : [blankSki()],
@@ -91,8 +92,11 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     } else {
       const list = cleanSkis(detForm.skis || []);
       const s0 = list[0] || {};
+      const issue = list.length > 1
+        ? list.map((s) => { const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ") || "Ski"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
+        : (s0.issue || "");
       patch = {
-        customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(), issue: detForm.issue.trim(),
+        customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(), issue,
         skis: list, year: s0.year || "", make: s0.make || "", model: s0.model || "", hull_id: s0.hull_id || "", registration: s0.registration || "",
       };
     }
@@ -142,17 +146,20 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
           <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Opens Messages with a pre-written note to {order.customer_phone}. Review it, then hit send.</div>
         </div>
       )}
-      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}` }}>{order.issue}</p>
+      <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}`, whiteSpace: "pre-line" }}>{order.issue}</p>
 
       {order.kind !== "maintenance" && skis.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 6 }}>Skis ({skis.length})</div>
           <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
             {skis.map((s, i) => (
-              <Row key={i} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
-                <span style={{ fontWeight: 700, color: C.ink }}>{skiLabel(s) || `Ski ${i + 1}`}</span>
-                <span style={{ flex: 1, color: C.slate }}>{[s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ")}</span>
-              </Row>
+              <div key={i} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+                <Row style={{ flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: C.ink }}>{skiLabel(s) || `Ski ${i + 1}`}</span>
+                  <span style={{ flex: 1, color: C.slate }}>{[s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ")}</span>
+                </Row>
+                {skis.length > 1 && s.issue && <div style={{ color: C.slate, marginTop: 3, whiteSpace: "pre-wrap" }}>{s.issue}</div>}
+              </div>
             ))}
           </div>
         </div>
@@ -176,7 +183,6 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
                 <Label>Skis</Label>
                 <SkiEditor skis={detForm.skis || []} onChange={(skis) => setDetForm({ ...detForm, skis })} />
               </div>
-              <div style={{ marginTop: 10 }}><Label>Issue</Label><textarea value={detForm.issue} onChange={(e) => setDetForm({ ...detForm, issue: e.target.value })} rows={3} style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD" }} /></div>
             </>
           )}
           <Row style={{ marginTop: 12 }}>
