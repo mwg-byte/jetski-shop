@@ -4,6 +4,7 @@ import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, Liv
 
 const GROUPS = [
   { key: "intake", label: "Intake", statuses: ["intake", "diagnosing"] },
+  { key: "deposit", label: "Awaiting Deposit", statuses: ["awaiting_deposit"] },
   { key: "awaiting", label: "Awaiting Parts", statuses: ["awaiting_parts"] },
   { key: "repair", label: "In Repair", statuses: ["in_repair", "testing"] },
   { key: "ready", label: "Ready", statuses: ["ready"] },
@@ -21,7 +22,7 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
     (!q || [o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q));
   const countFor = (g) => orders.filter((o) => g.statuses.includes(o.status) && matches(o)).length;
 
-  const group = GROUPS.find((g) => g.key === tab) || GROUPS[2];
+  const group = GROUPS.find((g) => g.key === tab) || GROUPS[3];
   const visible = orders
     .map((o, i) => ({ o, rank: i }))
     .filter(({ o }) => group.statuses.includes(o.status) && matches(o));
