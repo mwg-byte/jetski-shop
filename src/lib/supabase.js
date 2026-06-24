@@ -17,6 +17,7 @@ export const BODY = "'Inter', system-ui, sans-serif";
 export const STAGES = [
   { key: "intake", label: "Intake", color: "#5B6B76" },
   { key: "diagnosing", label: "Diagnosing", color: "#B07D0F" },
+  { key: "awaiting_deposit", label: "Awaiting Deposit", color: "#9333EA" },
   { key: "awaiting_parts", label: "Awaiting Parts", color: "#B45309" },
   { key: "in_repair", label: "In Repair", color: "#0E7C86" },
   { key: "testing", label: "Testing", color: "#4338CA" },
