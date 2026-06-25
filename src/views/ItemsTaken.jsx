@@ -24,11 +24,27 @@ export default function ItemsTaken({ crew, onBack }) {
   const [week, setWeek] = useState(thisWeek);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
-  const canRemove = (it) => it.taken_by === profile.id || ["owner", "manager"].includes(profile.role);
+  const isMgr = ["owner", "manager"].includes(profile.role);
 
   async function load() {
-    const { data } = await supabase.from("consumables_taken").select("*").order("created_at", { ascending: false });
-    setLogs(data || []);
+    const [{ data: cons }, { data: prt }, { data: ords }] = await Promise.all([
+      supabase.from("consumables_taken").select("*").order("created_at", { ascending: false }),
+      supabase.from("parts").select("*").eq("kind", "taken").order("created_at", { ascending: false }),
+      supabase.from("work_orders").select("id, customer_name, skis, year, make, model"),
+    ]);
+    const omap = {};
+    (ords || []).forEach((o) => {
+      const skisById = {};
+      (Array.isArray(o.skis) ? o.skis : []).forEach((s) => { if (s.id) skisById[s.id] = [s.year, s.make, s.model].filter(Boolean).join(" "); });
+      omap[o.id] = { customer: o.customer_name, skisById };
+    });
+    const consItems = (cons || []).map((c) => ({ source: "shop", id: c.id, created_at: c.created_at, name: c.name, qty: c.qty, note: c.note, taken_by: c.taken_by }));
+    const partItems = (prt || []).map((p) => {
+      const o = omap[p.order_id] || {};
+      return { source: "order", id: p.id, created_at: p.created_at, name: p.name, qty: p.qty, note: p.note, sku: p.sku, order_id: p.order_id, orderLabel: o.customer || "Work order", skiName: p.ski_id ? (o.skisById?.[p.ski_id] || "") : "" };
+    });
+    const merged = [...consItems, ...partItems].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+    setLogs(merged);
   }
   useEffect(() => { load(); }, []);
 
@@ -37,12 +53,14 @@ export default function ItemsTaken({ crew, onBack }) {
     const { data } = await supabase.from("consumables_taken").insert({
       taken_by: profile.id, name: form.name.trim(), qty: Number(form.qty) || 1, note: form.note.trim(),
     }).select().single();
-    if (data) { setLogs([data, ...logs]); setForm({ name: "", qty: "1", note: "" }); }
+    if (data) { setLogs([{ source: "shop", ...data }, ...logs]); setForm({ name: "", qty: "1", note: "" }); }
   }
   async function remove(it) {
-    setLogs(logs.filter((x) => x.id !== it.id));
-    await supabase.from("consumables_taken").delete().eq("id", it.id);
+    setLogs(logs.filter((x) => !(x.source === it.source && x.id === it.id)));
+    if (it.source === "shop") await supabase.from("consumables_taken").delete().eq("id", it.id);
+    else await supabase.from("parts").delete().eq("id", it.id);
   }
+  const canRemove = (it) => it.source === "shop" ? (it.taken_by === profile.id || isMgr) : isMgr;
 
   const wkStartMs = new Date(week + "T00:00:00").getTime();
   const wkEndMs = wkStartMs + 7 * DAY;
@@ -59,12 +77,12 @@ export default function ItemsTaken({ crew, onBack }) {
   return (
     <Card>
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
-      <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Items taken</h2>
+      <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Parts taken</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Log shop consumables pulled off the shelf — oil, rags, WD-40, zip ties, etc. Quick way to track what's getting used up.
+        Parts pulled on work orders show up here automatically — tagged with the job and ski. You can also log shop consumables that aren't tied to a job (oil, rags, WD-40, zip ties) below.
       </p>
 
-      <SectionTitle>Log an item taken</SectionTitle>
+      <SectionTitle>Log a shop item taken</SectionTitle>
       <Row>
         <TextInput placeholder="Item — 2-stroke oil, shop rags…" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ flex: 2, minWidth: 180 }} />
         <TextInput type="number" min="1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} style={{ width: 70 }} />
@@ -85,11 +103,20 @@ export default function ItemsTaken({ crew, onBack }) {
       ) : (
         <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
           {wkLogs.map((it) => (
-            <Row key={it.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
+            <Row key={it.source + it.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
               <span style={{ color: C.slate, minWidth: 60 }}>{fmtDate(it.created_at)}</span>
               <span style={{ fontWeight: 600, color: C.ink }}>{it.qty}× {it.name}</span>
-              <span style={{ flex: 1, color: C.slate }}>{it.note}</span>
-              <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
+              {it.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {it.sku}</span>}
+              <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
+              {it.source === "order" ? (
+                <Row style={{ gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.orange + "1A", color: C.orange }}>WO</span>
+                  <span style={{ fontWeight: 600, color: C.ink }}>{it.orderLabel}</span>
+                  {it.skiName && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal }}>{it.skiName}</span>}
+                </Row>
+              ) : (
+                <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
+              )}
               {canRemove(it) && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
             </Row>
           ))}
