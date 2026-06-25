@@ -25,6 +25,7 @@ export default function Payroll({ crew, settings, onBack }) {
   const { profile } = useAuth();
   const isOwner = profile.role === "owner";
   const [pending, setPending] = useState([]);
+  const [pendingTrips, setPendingTrips] = useState([]);
   const [start, setStart] = useState(weekStart(new Date().toISOString().slice(0, 10)));
   const [periodLen, setPeriodLen] = useState(7); // 7 or 14 days
   const [shifts, setShifts] = useState([]);
@@ -54,13 +55,19 @@ export default function Payroll({ crew, settings, onBack }) {
 
   useEffect(() => {
     supabase.from("expenses").select("*").eq("reimbursed", false).order("expense_date").then(({ data }) => setPending(data || []));
+    supabase.from("trips").select("*").eq("reimbursed", false).order("trip_date").then(({ data }) => setPendingTrips(data || []));
   }, []);
 
   async function markPaid(x) {
     setPending((cur) => cur.filter((p) => p.id !== x.id));
     await supabase.from("expenses").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", x.id);
   }
-  const pendingTotal = round2(pending.reduce((a, x) => a + Number(x.amount), 0));
+  async function markPaidTrip(t) {
+    setPendingTrips((cur) => cur.filter((p) => p.id !== t.id));
+    await supabase.from("trips").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", t.id);
+  }
+  const tripAmt = (t) => round2(Number(t.miles) * mileageRate);
+  const pendingTotal = round2(pending.reduce((a, x) => a + Number(x.amount), 0) + pendingTrips.reduce((a, t) => a + tripAmt(t), 0));
 
   // build per-tech, per-week hours so OT is computed weekly even in a 2-week period
   const rows = crew.map((t) => {
@@ -178,15 +185,16 @@ export default function Payroll({ crew, settings, onBack }) {
       )}
       <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.green, fontFamily: BODY }}>{money(pendingTotal)} owed</span>}>Reimbursements to pay out</SectionTitle>
       <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 2, marginBottom: 8 }}>
-        Pending out-of-pocket expenses across all dates. {isOwner ? "Tap Mark paid once you've reimbursed someone — it clears from their reimbursement list." : "Owners can mark these paid."}
+        Pending out-of-pocket expenses and unpaid mileage across all dates. {isOwner ? "Tap Mark paid once you've reimbursed someone — it clears from their reimbursement list." : "Owners can mark these paid."}
       </p>
-      {pending.length === 0 ? (
+      {pending.length === 0 && pendingTrips.length === 0 ? (
         <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing outstanding — everyone's paid up.</div>
       ) : (
         crew.map((t) => {
           const items = pending.filter((x) => x.tech_id === t.id);
-          if (!items.length) return null;
-          const sub = round2(items.reduce((a, x) => a + Number(x.amount), 0));
+          const tripItems = pendingTrips.filter((x) => x.tech_id === t.id);
+          if (!items.length && !tripItems.length) return null;
+          const sub = round2(items.reduce((a, x) => a + Number(x.amount), 0) + tripItems.reduce((a, x) => a + tripAmt(x), 0));
           return (
             <div key={t.id} style={{ marginBottom: 14 }}>
               <Row style={{ justifyContent: "space-between", marginBottom: 4 }}>
@@ -206,6 +214,15 @@ export default function Payroll({ crew, settings, onBack }) {
                     </Row>
                   );
                 })}
+                {tripItems.map((x) => (
+                  <Row key={x.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ color: C.slate, minWidth: 70 }}>{fmtDate(x.trip_date)}</span>
+                    <span style={{ flex: 1, color: C.ink, minWidth: 120 }}>{x.purpose || "Mileage"} · {round2(Number(x.miles))} mi @ {money(mileageRate)}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.orange + "1A", color: C.orange }}>mileage</span>
+                    <span style={{ fontWeight: 700, color: C.green }}>{money(tripAmt(x))}</span>
+                    {isOwner && <button onClick={() => markPaidTrip(x)} style={btnSm(C.teal)}>Mark paid</button>}
+                  </Row>
+                ))}
               </div>
             </div>
           );
