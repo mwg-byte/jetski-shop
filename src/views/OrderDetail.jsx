@@ -68,6 +68,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.slate, fontFamily: BODY, fontSize: 14 }}>Loading…</div>;
 
   const skis = skisOf(order);
+  const intakeDays = order.created_at ? Math.floor((Date.now() - new Date(order.created_at).getTime()) / 86400000) : null;
 
   const patchOrder = async (patch) => {
     const full = { ...patch };
@@ -133,6 +134,11 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
           </div>
         </div>
         <StatusChip status={order.status} big />
+      </Row>
+      <Row style={{ marginTop: 8, gap: 12, fontSize: 12, color: C.slate, fontFamily: BODY }}>
+        <span>Intake <b style={{ color: C.ink }}>{fmtDate(order.created_at)}</b></span>
+        <span>Picked up <b style={{ color: C.ink }}>{order.closed_at ? fmtDate(order.closed_at) : "—"}</b></span>
+        {!order.closed_at && intakeDays != null && <span style={{ color: intakeDays >= 30 ? C.red : intakeDays >= 14 ? C.orange : C.slate, fontWeight: 700 }}>{intakeDays}d in shop</span>}
       </Row>
       {order.kind === "maintenance" && (
         <span style={{ display: "inline-block", marginTop: 8, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: "#A162071A", color: "#A16207" }}>Maintenance task</span>
