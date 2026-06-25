@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { supabase, C, DISPLAY, BODY } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, fmtDate } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, LiveDot } from "../lib/ui";
 
+const ACTIVE_STATUSES = ["intake", "diagnosing", "awaiting_deposit", "awaiting_parts", "in_repair", "testing"];
 const GROUPS = [
+  { key: "active", label: "Active", statuses: ACTIVE_STATUSES },
   { key: "intake", label: "Intake", statuses: ["intake", "diagnosing"] },
   { key: "deposit", label: "Awaiting Deposit", statuses: ["awaiting_deposit"] },
   { key: "awaiting", label: "Awaiting Parts", statuses: ["awaiting_parts"] },
@@ -12,7 +14,7 @@ const GROUPS = [
 ];
 
 export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew }) {
-  const [tab, setTab] = useState("repair");
+  const [tab, setTab] = useState("active");
   const [techFilter, setTechFilter] = useState("all");
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
@@ -22,7 +24,7 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
     (!q || [o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q));
   const countFor = (g) => orders.filter((o) => g.statuses.includes(o.status) && matches(o)).length;
 
-  const group = GROUPS.find((g) => g.key === tab) || GROUPS[3];
+  const group = GROUPS.find((g) => g.key === tab) || GROUPS[0];
   const visible = orders
     .map((o, i) => ({ o, rank: i }))
     .filter(({ o }) => group.statuses.includes(o.status) && matches(o));
@@ -68,6 +70,8 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
           {visible.map(({ o, rank }, vi) => {
             const names = (assignees[o.id] || []).map((id) => crew.find((t) => t.id === id)?.display_name).filter(Boolean);
             const live = liveCounts[o.id] || 0;
+            const days = o.created_at ? Math.floor((Date.now() - new Date(o.created_at).getTime()) / 86400000) : null;
+            const ageColor = days == null ? C.slate : days >= 30 ? C.red : days >= 14 ? C.orange : C.slate;
             const upDelta = vi > 0 ? visible[vi - 1].rank - rank : 0;
             const downDelta = vi < visible.length - 1 ? visible[vi + 1].rank - rank : 0;
             return (
@@ -89,13 +93,17 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
                       ) : (
                         <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}{Array.isArray(o.skis) && o.skis.length > 1 ? ` +${o.skis.length - 1} more` : ""}</span>
                       )}
-                      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2, whiteSpace: "pre-line" }}>{o.issue}</div>
+                      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2 }}>{o.issue}</div>
                     </div>
                     <StatusChip status={o.status} />
                   </Row>
-                  <Row style={{ marginTop: 8, fontSize: 12, color: C.slate, fontFamily: BODY }}>
+                  <Row style={{ marginTop: 8, fontSize: 12, color: C.slate, fontFamily: BODY, gap: 10 }}>
                     {live > 0 && <span style={{ color: C.orange, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LiveDot color={C.orange} /> {live} on the clock</span>}
                     <span>{names.length ? names.join(", ") : "Unassigned"}</span>
+                    <span style={{ marginLeft: "auto", textAlign: "right" }}>
+                      In {fmtDate(o.created_at)}{o.closed_at ? ` · Out ${fmtDate(o.closed_at)}` : ""}
+                      {!o.closed_at && days != null && <span style={{ color: ageColor, fontWeight: 700 }}>{" · "}{days}d in shop</span>}
+                    </span>
                   </Row>
                 </button>
               </div>
