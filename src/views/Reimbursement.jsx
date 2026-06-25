@@ -10,6 +10,8 @@ export default function Reimbursement({ crew, onBack }) {
   const { profile } = useAuth();
   const mgr = isManager(profile.role);
   const [expenses, setExpenses] = useState([]);
+  const [trips, setTrips] = useState([]);
+  const [rate, setRate] = useState(0.7);
   const [range, setRange] = useState("all");
   const [form, setForm] = useState({ tech_id: profile.id, expense_date: today(), amount: "", description: "" });
   const [file, setFile] = useState(null);
@@ -23,8 +25,12 @@ export default function Reimbursement({ crew, onBack }) {
   async function load() {
     let q = supabase.from("expenses").select("*").order("expense_date", { ascending: false });
     if (!mgr) q = q.eq("tech_id", profile.id).eq("reimbursed", false);
-    const { data } = await q;
-    setExpenses(data || []);
+    let tq = supabase.from("trips").select("*").order("trip_date", { ascending: false });
+    if (!mgr) tq = tq.eq("tech_id", profile.id).eq("reimbursed", false);
+    const [{ data: ex }, { data: tr }, { data: st }] = await Promise.all([q, tq, supabase.from("settings").select("mileage_rate").maybeSingle()]);
+    setExpenses(ex || []);
+    setTrips(tr || []);
+    setRate(st?.mileage_rate ?? 0.7);
   }
   useEffect(() => { load(); }, []);
 
@@ -63,15 +69,17 @@ export default function Reimbursement({ crew, onBack }) {
     await supabase.from("expenses").delete().eq("id", x.id);
   }
 
-  const rows = expenses.filter((x) => inRange(x.expense_date, range));
-  const total = round2(rows.reduce((a, x) => a + Number(x.amount), 0));
+  const expRows = expenses.filter((x) => inRange(x.expense_date, range)).map((x) => ({ kind: "expense", id: x.id, date: x.expense_date, tech_id: x.tech_id, label: x.description, amount: round2(Number(x.amount)), receipt_path: x.receipt_path, reimbursed: x.reimbursed, raw: x }));
+  const tripRows = trips.filter((x) => inRange(x.trip_date, range)).map((x) => ({ kind: "mileage", id: x.id, date: x.trip_date, tech_id: x.tech_id, label: x.purpose || "Mileage", miles: round2(Number(x.miles)), amount: round2(Number(x.miles) * rate), reimbursed: x.reimbursed }));
+  const rows = [...expRows, ...tripRows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  const total = round2(rows.reduce((a, x) => a + x.amount, 0));
 
   return (
     <Card>
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Reimbursement</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Submit out-of-pocket expenses — parts runs, dump fees, supplies. Add what it was for, the amount, and a photo of the receipt. Totals flow into Payroll and Reports. Once the owner marks one paid in Payroll, it clears off this list.
+        Submit out-of-pocket expenses — parts runs, dump fees, supplies. Add what it was for, the amount, and a photo of the receipt. Mileage you log on the Mileage screen shows here too, reimbursed at the shop rate. Totals flow into Payroll and Reports. Once the owner marks one paid in Payroll, it clears off this list.
       </p>
 
       <SectionTitle>Submit an expense</SectionTitle>
@@ -105,24 +113,25 @@ export default function Reimbursement({ crew, onBack }) {
             <button key={r.key} onClick={() => setRange(r.key)} style={{ fontFamily: BODY, fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: range === r.key ? C.teal : "#F1F4F6", color: range === r.key ? "#fff" : C.slate }}>{r.label}</button>
           ))}
         </Row>
-      }>{mgr ? "All expenses" : "My expenses"} · {money(total)}</SectionTitle>
+      }>{mgr ? "All reimbursements" : "My reimbursements"} · {money(total)}</SectionTitle>
 
       {rows.length === 0 ? (
-        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No expenses in this range.</div>
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing in this range.</div>
       ) : (
         <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
           {rows.map((x) => {
-            const url = publicUrl(x.receipt_path);
-            const canRemove = mgr || x.tech_id === profile.id;
+            const url = x.kind === "expense" ? publicUrl(x.receipt_path) : null;
+            const canRemove = x.kind === "expense" && (mgr || x.tech_id === profile.id) && !x.reimbursed;
             return (
-              <Row key={x.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
-                <span style={{ color: C.slate, minWidth: 70 }}>{fmtDate(x.expense_date)}</span>
+              <Row key={x.kind + x.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ color: C.slate, minWidth: 70 }}>{fmtDate(x.date)}</span>
                 {mgr && <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(x.tech_id)}</span>}
-                <span style={{ flex: 1, color: C.ink }}>{x.description}</span>
+                <span style={{ flex: 1, color: C.ink, minWidth: 120 }}>{x.label}{x.kind === "mileage" ? ` · ${x.miles} mi` : ""}</span>
+                {x.kind === "mileage" && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.orange + "1A", color: C.orange }}>mileage</span>}
                 {url && <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>receipt</a>}
                 <span style={{ fontWeight: 700, color: C.green }}>{money(x.amount)}</span>
                 {mgr && x.reimbursed && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.green + "1A", color: C.green }}>Paid</span>}
-                {canRemove && !x.reimbursed && <button onClick={() => remove(x)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                {canRemove && <button onClick={() => remove(x.raw)} style={{ fontSize: 12, color: C.red }}>remove</button>}
               </Row>
             );
           })}
