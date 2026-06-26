@@ -100,6 +100,7 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
                   <Row style={{ marginTop: 8, fontSize: 12, color: C.slate, fontFamily: BODY, gap: 10 }}>
                     {live > 0 && <span style={{ color: C.orange, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LiveDot color={C.orange} /> {live} on the clock</span>}
                     <span>{names.length ? names.join(", ") : "Unassigned"}</span>
+                    {o.status === "ready" && o.customer_contacted && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.green + "1A", color: C.green }}>Contacted</span>}
                     <span style={{ marginLeft: "auto", textAlign: "right" }}>
                       In {fmtDate(o.created_at)}{o.closed_at ? ` · Out ${fmtDate(o.closed_at)}` : ""}
                       {!o.closed_at && days != null && <span style={{ color: ageColor, fontWeight: 700 }}>{" · "}{days}d in shop</span>}
