@@ -26,6 +26,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [lakeTests, setLakeTests] = useState([]);
   const [lakeSession, setLakeSession] = useState(null);
   const [assignees, setAssignees] = useState([]);
+  const [rates, setRates] = useState({});
   const [tab, setTab] = useState("job");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
@@ -35,7 +36,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const [, tick] = useState(0);
 
   async function loadAll() {
-    const [o, h, s, p, m, lt, ls, oa, no] = await Promise.all([
+    const [o, h, s, p, m, lt, ls, oa, no, pr] = await Promise.all([
       supabase.from("work_orders").select("*").eq("id", orderId).single(),
       supabase.from("hour_entries").select("*").eq("order_id", orderId).order("work_date"),
       supabase.from("job_sessions").select("*").eq("order_id", orderId),
@@ -45,6 +46,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       supabase.from("lake_sessions").select("*").eq("order_id", orderId).maybeSingle(),
       supabase.from("order_assignees").select("tech_id").eq("order_id", orderId),
       supabase.from("order_notes").select("*").eq("order_id", orderId).order("created_at", { ascending: false }),
+      supabase.from("pay_rates").select("tech_id, hourly_rate"),
     ]);
     let ord = o.data;
     if (ord && Array.isArray(ord.skis) && ord.skis.length > 1 && ord.skis.some((k) => !k.id)) {
@@ -56,6 +58,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
     setMedia(m.data || []); setLakeTests(lt.data || []); setLakeSession(ls.data || null);
     setAssignees((oa.data || []).map((r) => r.tech_id));
     setNotes(no.data || []);
+    const rmap = {}; (pr.data || []).forEach((r) => { rmap[r.tech_id] = Number(r.hourly_rate) || 0; }); setRates(rmap);
   }
   useEffect(() => { loadAll(); }, [orderId]);
 
@@ -143,13 +146,29 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       {order.kind === "maintenance" && (
         <span style={{ display: "inline-block", marginTop: 8, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: "#A162071A", color: "#A16207" }}>Maintenance task</span>
       )}
-      {order.status === "ready" && order.customer_phone && (
+      {order.status === "ready" && (
         <div style={{ marginTop: 12 }}>
-          <a href={`sms:${order.customer_phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`Hi ${order.customer_name}, your ${[order.year, order.make, order.model].filter(Boolean).join(" ") || "ski"} is ready for pickup! Give us a call or stop by whenever you're ready. Thanks!`)}`}
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 8, background: C.green, color: "#fff", fontFamily: BODY, fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
-            Text customer — ready for pickup
-          </a>
-          <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Opens Messages with a pre-written note to {order.customer_phone}. Review it, then hit send.</div>
+          <Row style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {order.customer_contacted ? (
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "3px 10px", borderRadius: 999, background: C.green + "1A", color: C.green }}>✓ Customer contacted{order.contacted_at ? ` · ${fmtDate(order.contacted_at)}` : ""}</span>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "3px 10px", borderRadius: 999, background: "#B077091A", color: "#B07709" }}>Not contacted yet</span>
+            )}
+            {canDelete && (
+              <button onClick={() => patchOrder(order.customer_contacted ? { customer_contacted: false, contacted_at: null } : { customer_contacted: true, contacted_at: new Date().toISOString() })} style={btnSm(order.customer_contacted ? C.slate : C.green)}>
+                {order.customer_contacted ? "Mark not contacted" : "Mark contacted"}
+              </button>
+            )}
+          </Row>
+          {order.customer_phone && (
+            <div style={{ marginTop: 10 }}>
+              <a href={`sms:${order.customer_phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`Hi ${order.customer_name}, your ${[order.year, order.make, order.model].filter(Boolean).join(" ") || "ski"} is ready for pickup! Give us a call or stop by whenever you're ready. Thanks!`)}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 8, background: C.green, color: "#fff", fontFamily: BODY, fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+                Text customer — ready for pickup
+              </a>
+              <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Opens Messages with a pre-written note to {order.customer_phone}. Review it, then hit send.</div>
+            </div>
+          )}
         </div>
       )}
       <p style={{ marginTop: 12, fontSize: 14, borderRadius: 6, padding: 12, background: "#F6F8F9", color: C.ink, fontFamily: BODY, border: `1px solid ${C.line}`, whiteSpace: "pre-line" }}>{order.issue}</p>
@@ -222,7 +241,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       </div>
 
       {tab === "job" || order.kind === "maintenance" ? (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr: canDelete }} />
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete }} />
       ) : (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
       )}
@@ -231,12 +250,12 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 }
 
 /* ================= JOB TAB ================= */
-function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, isMgr }) {
+function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "", ski_id: "" });
-  const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
-  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "" });
+  const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
+  const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
   const [editPartId, setEditPartId] = useState(null);
-  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", status: "requested", eta: "" });
+  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", status: "requested", eta: "", cost: "" });
   const [noteText, setNoteText] = useState("");
   const [noteSki, setNoteSki] = useState("");
   const [mediaSki, setMediaSki] = useState("");
@@ -246,6 +265,8 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const fileRef = useRef(null);
+  const [repairTotal, setRepairTotal] = useState(order.repair_total != null ? String(order.repair_total) : "");
+  const [deposit, setDeposit] = useState(order.deposit_amount != null ? String(order.deposit_amount) : "");
 
   const publicUrl = (path) => supabase.storage.from("job-media").getPublicUrl(path).data.publicUrl;
 
@@ -271,13 +292,13 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   async function addPart() {
     if (!partForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, sku: partForm.sku.trim(), note: partForm.note.trim(), ski_id: partForm.ski_id || null, kind: "request" }).select().single();
-    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", sku: "", note: "", ski_id: partForm.ski_id }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: partForm.name.trim(), qty: Number(partForm.qty) || 1, sku: partForm.sku.trim(), note: partForm.note.trim(), ski_id: partForm.ski_id || null, cost: partForm.cost === "" ? null : Number(partForm.cost), kind: "request" }).select().single();
+    if (data) { setParts([...parts, data]); setPartForm({ name: "", qty: "1", sku: "", note: "", ski_id: partForm.ski_id, cost: "" }); }
   }
   async function addTaken() {
     if (!takenForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), ski_id: takenForm.ski_id || null, kind: "taken" }).select().single();
-    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "", ski_id: takenForm.ski_id }); }
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), ski_id: takenForm.ski_id || null, cost: takenForm.cost === "" ? null : Number(takenForm.cost), kind: "taken" }).select().single();
+    if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "", ski_id: takenForm.ski_id, cost: "" }); }
   }
   async function addNote() {
     const body = noteText.trim();
@@ -306,14 +327,18 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
     setParts(parts.map((x) => (x.id === p.id ? { ...x, status } : x)));
     await supabase.from("parts").update({ status }).eq("id", p.id);
   }
+  async function setPartEta(p, eta) {
+    setParts(parts.map((x) => (x.id === p.id ? { ...x, eta: eta || null } : x)));
+    await supabase.from("parts").update({ eta: eta || null }).eq("id", p.id);
+  }
   function startEditPart(p) {
     setEditPartId(p.id);
-    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "", status: p.status || "requested", eta: p.eta || "" });
+    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "", status: p.status || "requested", eta: p.eta || "", cost: p.cost != null ? String(p.cost) : "" });
   }
   async function saveEditPart(p) {
     const name = editPartVals.name.trim();
     if (!name) return;
-    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null, status: editPartVals.status, eta: editPartVals.status === "ordered" ? (editPartVals.eta || null) : null };
+    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null, status: editPartVals.status, eta: editPartVals.status === "ordered" ? (editPartVals.eta || null) : null, cost: editPartVals.cost === "" ? null : Number(editPartVals.cost) };
     setParts(parts.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setEditPartId(null);
     await supabase.from("parts").update(patch).eq("id", p.id);
@@ -358,6 +383,22 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       {orderSkis.map((s, i) => <option key={s.id || i} value={s.id || ""}>{skiLabel(s) || `Ski ${i + 1}`}</option>)}
     </Select>
   );
+
+  const money = (n) => "$" + (Number(n) || 0).toFixed(2);
+  const partsCost = round2(parts.reduce((a, p) => a + (Number(p.cost) || 0) * (Number(p.qty) || 1), 0));
+  const laborRows = crew.map((t) => {
+    const hrs = round2(hours.filter((h) => h.tech_id === t.id).reduce((a, h) => a + Number(h.hours), 0));
+    const rate = rates[t.id] || 0;
+    return { id: t.id, name: t.display_name, hrs, rate, cost: round2(hrs * rate) };
+  }).filter((r) => r.hrs > 0);
+  const laborCost = round2(laborRows.reduce((a, r) => a + r.cost, 0));
+  const totalCost = round2(partsCost + laborCost);
+  const repairTotalNum = Number(order.repair_total) || 0;
+  const depositNum = Number(order.deposit_amount) || 0;
+  const profit = round2(repairTotalNum - totalCost);
+  const balanceDue = round2(repairTotalNum - depositNum);
+  const saveRepairTotal = () => patchOrder({ repair_total: repairTotal === "" ? 0 : Number(repairTotal) });
+  const saveDeposit = () => patchOrder({ deposit_amount: deposit === "" ? 0 : Number(deposit) });
 
   return (
     <>
@@ -496,6 +537,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note / supplier" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                  {isMgr && <TextInput type="number" step="0.01" min="0" placeholder="$ cost" value={editPartVals.cost} onChange={(e) => setEditPartVals({ ...editPartVals, cost: e.target.value })} style={{ width: 90 }} />}
                   {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
                   {isMgr && (
                     <Select value={editPartVals.status} onChange={(e) => setEditPartVals({ ...editPartVals, status: e.target.value })} style={{ width: "auto" }}>
@@ -518,8 +560,14 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <button onClick={() => cyclePart(p)} style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: PART_COLORS[p.status] + "1A", color: PART_COLORS[p.status] }}>{p.status}</button>
-                {p.status === "ordered" && p.eta && <span style={{ fontSize: 11, fontWeight: 700, color: C.orange, fontFamily: BODY }}>ETA {fmtDate(p.eta)}</span>}
+                {p.status === "ordered" && (
+                  <Row style={{ gap: 4, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.orange, fontFamily: BODY }}>ETA</span>
+                    <TextInput type="date" value={p.eta || ""} onChange={(e) => setPartEta(p, e.target.value)} style={{ width: "auto" }} />
+                  </Row>
+                )}
                 <button onClick={() => receivePart(p)} style={btnSm(C.green)}>✓ Received</button>
+                {isMgr && p.cost != null && <span style={{ fontWeight: 700, color: C.ink, fontFamily: BODY }}>{money(Number(p.cost) * Number(p.qty))}</span>}
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
                 <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
               </Row>
@@ -532,6 +580,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="number" min="1" value={partForm.qty} onChange={(e) => setPartForm({ ...partForm, qty: e.target.value })} style={{ width: 70 }} />
         <TextInput placeholder="SKU" value={partForm.sku} onChange={(e) => setPartForm({ ...partForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note / supplier" value={partForm.note} onChange={(e) => setPartForm({ ...partForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        {isMgr && <TextInput type="number" step="0.01" min="0" placeholder="$ cost" value={partForm.cost} onChange={(e) => setPartForm({ ...partForm, cost: e.target.value })} style={{ width: 90 }} />}
         {multiSki && <SkiPick value={partForm.ski_id} onChange={(v) => setPartForm({ ...partForm, ski_id: v })} />}
         <button onClick={addPart} style={btn(C.teal)}>Request part</button>
       </Row>
@@ -547,6 +596,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput type="number" min="1" value={editPartVals.qty} onChange={(e) => setEditPartVals({ ...editPartVals, qty: e.target.value })} style={{ width: 70 }} />
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+                  {isMgr && <TextInput type="number" step="0.01" min="0" placeholder="$ cost" value={editPartVals.cost} onChange={(e) => setEditPartVals({ ...editPartVals, cost: e.target.value })} style={{ width: 90 }} />}
                   {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
                 </Row>
                 <Row style={{ marginTop: 8 }}>
@@ -561,6 +611,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
+                {isMgr && p.cost != null && <span style={{ fontWeight: 700, color: C.ink, fontFamily: BODY }}>{money(Number(p.cost) * Number(p.qty))}</span>}
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
                 <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
               </Row>
@@ -573,9 +624,40 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         <TextInput type="number" min="1" value={takenForm.qty} onChange={(e) => setTakenForm({ ...takenForm, qty: e.target.value })} style={{ width: 70 }} />
         <TextInput placeholder="SKU" value={takenForm.sku} onChange={(e) => setTakenForm({ ...takenForm, sku: e.target.value })} style={{ width: 100 }} />
         <TextInput placeholder="Note" value={takenForm.note} onChange={(e) => setTakenForm({ ...takenForm, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
+        {isMgr && <TextInput type="number" step="0.01" min="0" placeholder="$ cost" value={takenForm.cost} onChange={(e) => setTakenForm({ ...takenForm, cost: e.target.value })} style={{ width: 90 }} />}
         {multiSki && <SkiPick value={takenForm.ski_id} onChange={(v) => setTakenForm({ ...takenForm, ski_id: v })} />}
         <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
+
+      {isMgr && (
+        <>
+          <SectionTitle>Cost & profit</SectionTitle>
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
+            <Row style={{ gap: 12, flexWrap: "wrap" }}>
+              <div><Label>Repair total ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={repairTotal} onChange={(e) => setRepairTotal(e.target.value)} onBlur={saveRepairTotal} style={{ width: 130 }} /></div>
+              <div><Label>Down payment ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={deposit} onChange={(e) => setDeposit(e.target.value)} onBlur={saveDeposit} style={{ width: 130 }} /></div>
+            </Row>
+            <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
+              {laborRows.map((r) => (
+                <Row key={r.id} style={{ justifyContent: "space-between", fontSize: 13, fontFamily: BODY, color: C.slate, marginBottom: 2 }}>
+                  <span>{r.name} — {r.hrs} hrs @ {money(r.rate)}/hr</span>
+                  <span>{money(r.cost)}</span>
+                </Row>
+              ))}
+              <CostLine label="Parts cost" value={money(partsCost)} />
+              <CostLine label="Labor cost" value={money(laborCost)} />
+              <CostLine label="Total cost" value={money(totalCost)} bold />
+              <CostLine label="Repair total" value={money(repairTotalNum)} />
+              <CostLine label="Profit" value={money(profit)} color={profit >= 0 ? C.green : C.red} bold />
+              <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 8, paddingTop: 8 }}>
+                <CostLine label="Down payment" value={money(depositNum)} />
+                <CostLine label="Balance due" value={money(balanceDue)} color={balanceDue > 0 ? C.orange : C.green} bold />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Labor cost uses each tech's pay rate (set in Crew). Parts cost sums the unit cost entered on parts. Profit = repair total − parts − labor.</div>
+          </div>
+        </>
+      )}
 
       <SectionTitle>Photos & video</SectionTitle>
       {multiSki && (
@@ -696,6 +778,15 @@ function LakeTab({ orderId, crew, profile, lakeTests, setLakeTests, lakeSession,
         <button onClick={addManual} style={btn(C.teal)}>Add run</button>
       </Row>
     </>
+  );
+}
+
+function CostLine({ label, value, bold, color }) {
+  return (
+    <Row style={{ justifyContent: "space-between", fontSize: 14, fontFamily: BODY, marginTop: 3 }}>
+      <span style={{ color: C.slate, fontWeight: bold ? 700 : 400 }}>{label}</span>
+      <span style={{ color: color || C.ink, fontWeight: bold ? 700 : 600 }}>{value}</span>
+    </Row>
   );
 }
 
