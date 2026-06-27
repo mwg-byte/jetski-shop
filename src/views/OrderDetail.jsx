@@ -267,6 +267,9 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const fileRef = useRef(null);
   const [repairTotal, setRepairTotal] = useState(order.repair_total != null ? String(order.repair_total) : "");
   const [deposit, setDeposit] = useState(order.deposit_amount != null ? String(order.deposit_amount) : "");
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState("");
+  const [payLink, setPayLink] = useState("");
 
   const publicUrl = (path) => supabase.storage.from("job-media").getPublicUrl(path).data.publicUrl;
 
@@ -399,6 +402,39 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const balanceDue = round2(repairTotalNum - depositNum);
   const saveRepairTotal = () => patchOrder({ repair_total: repairTotal === "" ? 0 : Number(repairTotal) });
   const saveDeposit = () => patchOrder({ deposit_amount: deposit === "" ? 0 : Number(deposit) });
+  async function requestPayment() {
+    const def = balanceDue > 0 ? balanceDue : repairTotalNum;
+    const input = window.prompt("Amount to charge the customer ($):", def ? String(def) : "");
+    if (input == null) return;
+    const amt = Number(input);
+    if (!amt || amt <= 0) { setPayErr("Enter an amount greater than 0."); return; }
+    setPayBusy(true); setPayErr(""); setPayLink("");
+    try {
+      const label = `Repair — ${order.customer_name || "ski"}`;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/square-payment-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ amount: amt, name: label, note: `Work order ${orderId}` }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || "Could not create payment link.");
+      setPayLink(data.url);
+      const phone = (order.customer_phone || "").replace(/[^\d+]/g, "");
+      const body = encodeURIComponent(`Hi ${order.customer_name}, here's a secure link to pay ${money(amt)} for your ${[order.year, order.make, order.model].filter(Boolean).join(" ") || "ski"} service: ${data.url}`);
+      if (phone) window.location.href = `sms:${phone}?&body=${body}`;
+    } catch (e) {
+      setPayErr(e.message || "Payment link failed.");
+    } finally {
+      setPayBusy(false);
+    }
+  }
+  function markPaidInFull() {
+    if (!window.confirm("Mark this order paid in full?")) return;
+    patchOrder({ paid_in_full: true, paid_at: new Date().toISOString(), paid_amount: repairTotalNum });
+  }
+  function unmarkPaid() {
+    patchOrder({ paid_in_full: false, paid_at: null, paid_amount: null });
+  }
 
   return (
     <>
@@ -651,9 +687,29 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               <CostLine label="Profit" value={money(profit)} color={profit >= 0 ? C.green : C.red} bold />
               <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 8, paddingTop: 8 }}>
                 <CostLine label="Down payment" value={money(depositNum)} />
-                <CostLine label="Balance due" value={money(balanceDue)} color={balanceDue > 0 ? C.orange : C.green} bold />
+                <CostLine label="Balance due" value={money(order.paid_in_full ? 0 : balanceDue)} color={order.paid_in_full || balanceDue <= 0 ? C.green : C.orange} bold />
               </div>
             </div>
+            <Row style={{ marginTop: 12, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {order.paid_in_full ? (
+                <>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 12px", borderRadius: 999, background: C.green + "1A", color: C.green }}>✓ Paid in full{order.paid_at ? ` · ${fmtDate(order.paid_at)}` : ""}</span>
+                  <button onClick={unmarkPaid} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>undo</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={requestPayment} disabled={payBusy} style={{ ...btn(C.teal), opacity: payBusy ? 0.6 : 1 }}>{payBusy ? "Creating link…" : "Request payment"}</button>
+                  <button onClick={markPaidInFull} style={btn(C.green)}>Mark paid in full</button>
+                </>
+              )}
+            </Row>
+            {payErr && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 6 }}>{payErr}</div>}
+            {payLink && (
+              <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, wordBreak: "break-all" }}>
+                Payment link: <a href={payLink} target="_blank" rel="noreferrer" style={{ color: C.teal, fontWeight: 600 }}>{payLink}</a>
+                {!order.customer_phone && " — add a customer phone to text it automatically."}
+              </div>
+            )}
             <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Labor cost uses each tech's pay rate (set in Crew). Parts cost sums the unit cost entered on parts. Profit = repair total − parts − labor.</div>
           </div>
         </>
