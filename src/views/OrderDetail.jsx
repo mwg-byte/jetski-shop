@@ -267,6 +267,8 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const fileRef = useRef(null);
   const [repairTotal, setRepairTotal] = useState(order.repair_total != null ? String(order.repair_total) : "");
   const [deposit, setDeposit] = useState(order.deposit_amount != null ? String(order.deposit_amount) : "");
+  const [schedDate, setSchedDate] = useState(order.scheduled_date ? String(order.scheduled_date).slice(0, 10) : "");
+  const [estHours, setEstHours] = useState(order.est_hours != null ? String(order.est_hours) : "");
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
   const [payLink, setPayLink] = useState("");
@@ -664,6 +666,19 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         {multiSki && <SkiPick value={takenForm.ski_id} onChange={(v) => setTakenForm({ ...takenForm, ski_id: v })} />}
         <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
+
+      {isMgr && (
+        <>
+          <SectionTitle>Scheduling</SectionTitle>
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
+            <Row style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div><Label>Scheduled date</Label><TextInput type="date" value={schedDate} onChange={(e) => setSchedDate(e.target.value)} onBlur={() => patchOrder({ scheduled_date: schedDate || null })} style={{ width: "auto" }} /></div>
+              <div><Label>Estimated repair time (hrs)</Label><TextInput type="number" step="0.5" min="0" placeholder="—" value={estHours} onChange={(e) => setEstHours(e.target.value)} onBlur={() => patchOrder({ est_hours: estHours === "" ? null : Number(estHours) })} style={{ width: 130 }} /></div>
+            </Row>
+            <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Feeds the Planner — schedule, price list and revenue projections.</div>
+          </div>
+        </>
+      )}
 
       {isMgr && (
         <>
