@@ -4,6 +4,7 @@ import { Card, Row, TextInput, SectionTitle, btn } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
 const DAY = 86400000;
+const money = (n) => "$" + (Number(n) || 0).toFixed(2);
 function weekStart(d) {
   const date = new Date(typeof d === "string" ? d + "T12:00:00" : d);
   const day = (date.getDay() + 6) % 7;
@@ -22,6 +23,8 @@ export default function ItemsTaken({ crew, onBack }) {
   const [form, setForm] = useState({ name: "", qty: "1", note: "" });
   const thisWeek = weekStart(new Date());
   const [week, setWeek] = useState(thisWeek);
+  const [mode, setMode] = useState("customer");
+  const [search, setSearch] = useState("");
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
   const isMgr = ["owner", "manager"].includes(profile.role);
@@ -41,7 +44,7 @@ export default function ItemsTaken({ crew, onBack }) {
     const consItems = (cons || []).map((c) => ({ source: "shop", id: c.id, created_at: c.created_at, name: c.name, qty: c.qty, note: c.note, taken_by: c.taken_by }));
     const partItems = (prt || []).map((p) => {
       const o = omap[p.order_id] || {};
-      return { source: "order", id: p.id, created_at: p.created_at, name: p.name, qty: p.qty, note: p.note, sku: p.sku, order_id: p.order_id, orderLabel: o.customer || "Work order", skiName: p.ski_id ? (o.skisById?.[p.ski_id] || "") : "" };
+      return { source: "order", id: p.id, created_at: p.created_at, name: p.name, qty: p.qty, note: p.note, sku: p.sku, cost: p.cost, order_id: p.order_id, orderLabel: o.customer || "Work order", skiName: p.ski_id ? (o.skisById?.[p.ski_id] || "") : "" };
     });
     const merged = [...consItems, ...partItems].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
     setLogs(merged);
@@ -70,16 +73,28 @@ export default function ItemsTaken({ crew, onBack }) {
   const wkLogs = logs.filter((l) => inWeek(l.created_at));
   const wkQty = wkLogs.reduce((a, l) => a + Number(l.qty), 0);
 
+  // ---- By customer ----
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (it) => !q || [it.orderLabel, it.name, it.sku, it.skiName, it.note].filter(Boolean).join(" ").toLowerCase().includes(q);
+  const orderItems = logs.filter((l) => l.source === "order" && matchesSearch(l));
+  const byCustomer = {};
+  orderItems.forEach((it) => { const k = it.orderLabel || "—"; (byCustomer[k] = byCustomer[k] || []).push(it); });
+  const customers = Object.keys(byCustomer).sort((a, b) => a.localeCompare(b));
+
   const navBtn = (label, onClick, disabled) => (
     <button onClick={onClick} disabled={disabled} style={{ fontFamily: BODY, fontSize: 13, fontWeight: 600, padding: "6px 12px", borderRadius: 6, background: "#F1F4F6", color: disabled ? "#B7C2CA" : C.ink, opacity: disabled ? 0.6 : 1 }}>{label}</button>
   );
+  const modeBtn = (key, label) => (
+    <button onClick={() => setMode(key)} style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 16px", borderRadius: 999, background: mode === key ? C.ink : "#F1F4F6", color: mode === key ? "#fff" : C.slate }}>{label}</button>
+  );
+  const skiChip = (txt) => txt ? <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal }}>{txt}</span> : null;
 
   return (
     <Card>
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Parts taken</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Parts pulled on work orders show up here automatically — tagged with the job and ski. You can also log shop consumables that aren't tied to a job (oil, rags, WD-40, zip ties) below.
+        Parts pulled on work orders show up here automatically — tagged with the customer and ski. Use <b>By customer</b> to see everything taken for a customer's skis in one place, or <b>By week</b> for the running log plus shop consumables (oil, rags, WD-40).
       </p>
 
       <SectionTitle>Log a shop item taken</SectionTitle>
@@ -90,37 +105,82 @@ export default function ItemsTaken({ crew, onBack }) {
         <button onClick={add} style={btn(C.teal)}>Log it</button>
       </Row>
 
-      <SectionTitle right={
-        <Row style={{ gap: 6 }}>
-          {navBtn("‹ Prev", () => setWeek(addDays(week, -7)), false)}
-          {!isThisWeek && navBtn("This week", () => setWeek(thisWeek), false)}
-          {navBtn("Next ›", () => setWeek(addDays(week, 7)), isThisWeek)}
-        </Row>
-      }>Taken · {weekLabel}</SectionTitle>
-      <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginBottom: 6 }}>{wkLogs.length} entries · {wkQty} items taken this week</div>
-      {wkLogs.length === 0 ? (
-        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing logged this week.</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 18, marginBottom: 6, flexWrap: "wrap" }}>
+        {modeBtn("customer", "By customer")}
+        {modeBtn("week", "By week")}
+      </div>
+
+      {mode === "customer" ? (
+        <>
+          <Row style={{ marginTop: 8, marginBottom: 10 }}>
+            <TextInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer, part, SKU, ski…" style={{ maxWidth: 320 }} />
+          </Row>
+          {customers.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>{q ? "No taken parts match that search." : "No parts have been taken on work orders yet."}</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {customers.map((cust) => {
+                const items = byCustomer[cust].slice().sort((a, b) => (a.skiName || "").localeCompare(b.skiName || "") || (a.created_at < b.created_at ? 1 : -1));
+                const totQty = items.reduce((a, it) => a + Number(it.qty), 0);
+                const totCost = items.reduce((a, it) => a + (Number(it.cost) || 0) * Number(it.qty), 0);
+                return (
+                  <div key={cust} style={{ borderRadius: 8, border: `1px solid ${C.line}`, overflow: "hidden" }}>
+                    <Row style={{ justifyContent: "space-between", padding: "8px 12px", background: C.ink }}>
+                      <span style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: "#fff", textTransform: "uppercase" }}>{cust}</span>
+                      <span style={{ fontSize: 12, color: "#CFE0EA", fontFamily: BODY }}>{items.length} line{items.length > 1 ? "s" : ""} · {totQty} items{isMgr ? ` · ${money(totCost)}` : ""}</span>
+                    </Row>
+                    {items.map((it) => (
+                      <Row key={it.source + it.id} style={{ padding: "8px 12px", fontSize: 14, borderTop: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                        <span style={{ color: C.slate, minWidth: 56 }}>{fmtDate(it.created_at)}</span>
+                        <span style={{ fontWeight: 600, color: C.ink }}>{it.qty}× {it.name}</span>
+                        {it.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {it.sku}</span>}
+                        {skiChip(it.skiName)}
+                        <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
+                        {isMgr && it.cost != null && <span style={{ fontWeight: 700, color: C.ink }}>{money(Number(it.cost) * Number(it.qty))}</span>}
+                        {isMgr && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                      </Row>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       ) : (
-        <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
-          {wkLogs.map((it) => (
-            <Row key={it.source + it.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
-              <span style={{ color: C.slate, minWidth: 60 }}>{fmtDate(it.created_at)}</span>
-              <span style={{ fontWeight: 600, color: C.ink }}>{it.qty}× {it.name}</span>
-              {it.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {it.sku}</span>}
-              <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
-              {it.source === "order" ? (
-                <Row style={{ gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.orange + "1A", color: C.orange }}>WO</span>
-                  <span style={{ fontWeight: 600, color: C.ink }}>{it.orderLabel}</span>
-                  {it.skiName && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal }}>{it.skiName}</span>}
-                </Row>
-              ) : (
-                <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
-              )}
-              {canRemove(it) && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+        <>
+          <SectionTitle right={
+            <Row style={{ gap: 6 }}>
+              {navBtn("‹ Prev", () => setWeek(addDays(week, -7)), false)}
+              {!isThisWeek && navBtn("This week", () => setWeek(thisWeek), false)}
+              {navBtn("Next ›", () => setWeek(addDays(week, 7)), isThisWeek)}
             </Row>
-          ))}
-        </div>
+          }>Taken · {weekLabel}</SectionTitle>
+          <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginBottom: 6 }}>{wkLogs.length} entries · {wkQty} items taken this week</div>
+          {wkLogs.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing logged this week.</div>
+          ) : (
+            <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+              {wkLogs.map((it) => (
+                <Row key={it.source + it.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ color: C.slate, minWidth: 60 }}>{fmtDate(it.created_at)}</span>
+                  <span style={{ fontWeight: 600, color: C.ink }}>{it.qty}× {it.name}</span>
+                  {it.sku && <span style={{ fontSize: 12, color: C.slate }}>SKU {it.sku}</span>}
+                  <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
+                  {it.source === "order" ? (
+                    <Row style={{ gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.orange + "1A", color: C.orange }}>WO</span>
+                      <span style={{ fontWeight: 600, color: C.ink }}>{it.orderLabel}</span>
+                      {skiChip(it.skiName)}
+                    </Row>
+                  ) : (
+                    <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
+                  )}
+                  {canRemove(it) && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+                </Row>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </Card>
   );

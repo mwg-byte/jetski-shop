@@ -1,10 +1,33 @@
 import { useState, useEffect, useMemo } from "react";
-import { supabase, C, DISPLAY, BODY, today, round2, fmtDate } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, today, round2, fmtDate, stageOf } from "../lib/supabase";
 import { Card, Row, TextInput, Select, StatusChip, btn } from "../lib/ui";
 
 const money = (n) => "$" + (Number(n) || 0).toFixed(2);
 const skiText = (o) => [o.year, o.make, o.model].filter(Boolean).join(" ");
 const dateOnly = (v) => (v ? String(v).slice(0, 10) : "");
+const m2 = (n) => round2(Number(n) || 0);
+
+function loadXLSX() {
+  return new Promise((resolve, reject) => {
+    if (window.XLSX) return resolve(window.XLSX);
+    const s = document.createElement("script");
+    s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error("Could not load the Excel library — check your connection and try again."));
+    document.head.appendChild(s);
+  });
+}
+function weekStartISO(iso) {
+  const d = new Date(iso + "T12:00:00");
+  const day = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - day);
+  return d.toISOString().slice(0, 10);
+}
+function weekLabel(iso) {
+  const start = new Date(iso + "T12:00:00");
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  return `${fmtDate(start.toISOString())} – ${fmtDate(end.toISOString())}`;
+}
 
 const SUBTABS = [
   { key: "price", label: "By price" },
@@ -20,6 +43,8 @@ export default function Pipeline({ orders = [], crew = [], onOpen, onBack }) {
   const [hours, setHours] = useState([]);
   const [rates, setRates] = useState({});
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   // seed from the orders App already loaded, then refresh costs data
   useEffect(() => { setRows(orders.filter((o) => o.kind !== "maintenance")); }, [orders]);
@@ -62,6 +87,100 @@ export default function Pipeline({ orders = [], crew = [], onOpen, onBack }) {
     await supabase.from("work_orders").update(patch).eq("id", id);
   }
 
+  async function exportExcel() {
+    setBusy(true); setErr("");
+    try {
+      const XLSX = await loadXLSX();
+      const statusOf = (o) => stageOf(o.status).label;
+
+      // ---- Summary ----
+      const totRepair = m2(rows.reduce((a, o) => a + (calc[o.id]?.repairTotal || 0), 0));
+      const totCost = m2(rows.reduce((a, o) => a + (calc[o.id]?.totalCost || 0), 0));
+      const totProfit = m2(totRepair - totCost);
+      const collected = m2(rows.filter((o) => o.paid_in_full).reduce((a, o) => a + (Number(o.paid_amount) || calc[o.id]?.repairTotal || 0), 0));
+      const deposits = m2(rows.filter((o) => !o.paid_in_full && Number(o.deposit_amount) > 0).reduce((a, o) => a + Number(o.deposit_amount), 0));
+      const sumAoa = [
+        ["Jet Ski Shop — Cost & profit"],
+        ["Generated", new Date().toLocaleString()],
+        [],
+        ["Jobs (excludes maintenance)", rows.length],
+        ["Total repair $", totRepair],
+        ["Total est. cost", totCost],
+        ["Total est. profit", totProfit],
+        ["Collected (paid in full)", collected],
+        ["Deposits held (not yet paid in full)", deposits],
+        [],
+        ["Est. cost = logged parts cost + logged labor (tech pay rate). Profit = repair total − est. cost."],
+      ];
+
+      // ---- By customer (a row per job, grouped + per-customer totals) ----
+      const custHdr = ["Customer", "Ski", "Status", "Intake", "Scheduled", "Paid on", "Repair total", "Parts cost", "Labor cost", "Total cost", "Profit", "Paid in full?"];
+      const custAoa = [custHdr];
+      const byCust = {};
+      rows.forEach((o) => { const k = o.customer_name || "—"; (byCust[k] = byCust[k] || []).push(o); });
+      let gR = 0, gP = 0, gL = 0, gC = 0, gPr = 0;
+      Object.keys(byCust).sort((a, b) => a.localeCompare(b)).forEach((name) => {
+        const list = byCust[name].slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        let sR = 0, sP = 0, sL = 0, sC = 0, sPr = 0;
+        list.forEach((o) => {
+          const c = calc[o.id] || {};
+          custAoa.push([
+            name, skiText(o), statusOf(o),
+            o.created_at ? fmtDate(o.created_at) : "",
+            o.scheduled_date ? fmtDate(o.scheduled_date) : "",
+            o.paid_at ? fmtDate(o.paid_at) : "",
+            m2(c.repairTotal), m2(c.partsCost), m2(c.laborCost), m2(c.totalCost), m2(c.profit),
+            o.paid_in_full ? "Yes" : "",
+          ]);
+          sR += c.repairTotal || 0; sP += c.partsCost || 0; sL += c.laborCost || 0; sC += c.totalCost || 0; sPr += c.profit || 0;
+        });
+        if (list.length > 1) custAoa.push([`Total — ${name}`, "", "", "", "", "", m2(sR), m2(sP), m2(sL), m2(sC), m2(sPr), ""]);
+        gR += sR; gP += sP; gL += sL; gC += sC; gPr += sPr;
+      });
+      custAoa.push([]);
+      custAoa.push(["GRAND TOTAL", "", "", "", "", "", m2(gR), m2(gP), m2(gL), m2(gC), m2(gPr), ""]);
+
+      // ---- By week (paid date) ----
+      const weekHdr = ["Week of", "Customer", "Ski", "Paid on", "Repair total", "Parts cost", "Labor cost", "Total cost", "Profit"];
+      const weekAoa = [weekHdr];
+      const paidRows = rows.filter((o) => o.paid_in_full && o.paid_at);
+      if (!paidRows.length) {
+        weekAoa.push(["No jobs marked paid in full yet."]);
+      } else {
+        const byWeek = {};
+        paidRows.forEach((o) => { const k = weekStartISO(dateOnly(o.paid_at)); (byWeek[k] = byWeek[k] || []).push(o); });
+        let wgR = 0, wgP = 0, wgL = 0, wgC = 0, wgPr = 0;
+        Object.keys(byWeek).sort().forEach((k) => {
+          const list = byWeek[k].slice().sort((a, b) => dateOnly(a.paid_at).localeCompare(dateOnly(b.paid_at)));
+          let sR = 0, sP = 0, sL = 0, sC = 0, sPr = 0;
+          list.forEach((o, idx) => {
+            const c = calc[o.id] || {};
+            weekAoa.push([
+              idx === 0 ? weekLabel(k) : "", o.customer_name || "—", skiText(o), fmtDate(o.paid_at),
+              m2(c.repairTotal), m2(c.partsCost), m2(c.laborCost), m2(c.totalCost), m2(c.profit),
+            ]);
+            sR += c.repairTotal || 0; sP += c.partsCost || 0; sL += c.laborCost || 0; sC += c.totalCost || 0; sPr += c.profit || 0;
+          });
+          weekAoa.push(["", "Week total", "", "", m2(sR), m2(sP), m2(sL), m2(sC), m2(sPr)]);
+          weekAoa.push([]);
+          wgR += sR; wgP += sP; wgL += sL; wgC += sC; wgPr += sPr;
+        });
+        weekAoa.push(["GRAND TOTAL", "", "", "", m2(wgR), m2(wgP), m2(wgL), m2(wgC), m2(wgPr)]);
+      }
+
+      const wb = XLSX.utils.book_new();
+      const mk = (name, aoa, cols) => { const ws = XLSX.utils.aoa_to_sheet(aoa); if (cols) ws["!cols"] = cols.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
+      mk("Summary", sumAoa, [34, 22]);
+      mk("By customer", custAoa, [20, 20, 14, 12, 12, 12, 12, 11, 11, 11, 11, 12]);
+      mk("By week", weekAoa, [22, 20, 20, 12, 12, 11, 11, 11, 11]);
+      XLSX.writeFile(wb, `jetski-cost-profit-${today()}.xlsx`);
+    } catch (e) {
+      setErr(e.message || "Export failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card>
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
@@ -81,7 +200,11 @@ export default function Pipeline({ orders = [], crew = [], onOpen, onBack }) {
             }}>{t.label}</button>
           );
         })}
+        <button onClick={exportExcel} disabled={busy || loading} style={{ marginLeft: "auto", ...btn("#fff", C.ink), fontSize: 13, opacity: busy || loading ? 0.6 : 1 }}>
+          {busy ? "Building…" : "⬇ Export Excel"}
+        </button>
       </div>
+      {err && <div style={{ fontSize: 13, color: C.red, fontFamily: BODY, marginBottom: 10 }}>{err}</div>}
 
       {loading ? (
         <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Loading shop data…</div>
