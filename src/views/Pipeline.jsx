@@ -200,11 +200,7 @@ export default function Pipeline({ orders = [], crew = [], onOpen, onBack }) {
             }}>{t.label}</button>
           );
         })}
-        <button onClick={exportExcel} disabled={busy || loading} style={{ marginLeft: "auto", ...btn("#fff", C.ink), fontSize: 13, opacity: busy || loading ? 0.6 : 1 }}>
-          {busy ? "Building…" : "⬇ Export Excel"}
-        </button>
       </div>
-      {err && <div style={{ fontSize: 13, color: C.red, fontFamily: BODY, marginBottom: 10 }}>{err}</div>}
 
       {loading ? (
         <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Loading shop data…</div>
@@ -360,9 +356,11 @@ function monthStart() { const d = new Date(); return new Date(d.getFullYear(), d
 function monthEnd() { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10); }
 
 function RevenueView({ rows, calc }) {
-  const [basis, setBasis] = useState("scheduled");
+  const [basis, setBasis] = useState("paid");
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(monthEnd());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const base = BASES.find((b) => b.key === basis);
 
   const hits = rows.filter((o) => {
@@ -372,6 +370,51 @@ function RevenueView({ rows, calc }) {
   const repair = round2(hits.reduce((a, o) => a + (calc[o.id]?.repairTotal || 0), 0));
   const cost = round2(hits.reduce((a, o) => a + (calc[o.id]?.totalCost || 0), 0));
   const profit = round2(repair - cost);
+
+  async function exportRange() {
+    setBusy(true); setErr("");
+    try {
+      const XLSX = await loadXLSX();
+      const wb = XLSX.utils.book_new();
+      const mk = (name, aoa, cols) => { const ws = XLSX.utils.aoa_to_sheet(aoa); if (cols) ws["!cols"] = cols.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
+      const sumAoa = [
+        ["Jet Ski Shop — Revenue & profit"],
+        ["Based on", base.label],
+        ["Range", `${fmtDate(from)} – ${fmtDate(to)}`],
+        ["Generated", new Date().toLocaleString()],
+        [],
+        ["Jobs", hits.length],
+        ["Revenue (repair total)", repair],
+        ["Est. cost", cost],
+        ["Est. profit", profit],
+      ];
+      const hdr = ["Week of", "Customer", "Ski", base.label, "Repair total", "Parts cost", "Labor cost", "Total cost", "Profit"];
+      const aoa = [hdr];
+      const byWeek = {};
+      hits.forEach((o) => { const k = weekStartISO(base.field(o)); (byWeek[k] = byWeek[k] || []).push(o); });
+      const g = { r: 0, p: 0, l: 0, c: 0, pr: 0 };
+      Object.keys(byWeek).sort().forEach((k) => {
+        const list = byWeek[k].slice().sort((a, b) => base.field(a).localeCompare(base.field(b)));
+        const s = { r: 0, p: 0, l: 0, c: 0, pr: 0 };
+        list.forEach((o, idx) => {
+          const c = calc[o.id] || {};
+          aoa.push([idx === 0 ? weekLabel(k) : "", o.customer_name || "—", skiText(o), fmtDate(base.field(o)), m2(c.repairTotal), m2(c.partsCost), m2(c.laborCost), m2(c.totalCost), m2(c.profit)]);
+          s.r += c.repairTotal || 0; s.p += c.partsCost || 0; s.l += c.laborCost || 0; s.c += c.totalCost || 0; s.pr += c.profit || 0;
+        });
+        aoa.push(["", "Week total", "", "", m2(s.r), m2(s.p), m2(s.l), m2(s.c), m2(s.pr)]);
+        aoa.push([]);
+        g.r += s.r; g.p += s.p; g.l += s.l; g.c += s.c; g.pr += s.pr;
+      });
+      aoa.push(["GRAND TOTAL", "", "", "", m2(g.r), m2(g.p), m2(g.l), m2(g.c), m2(g.pr)]);
+      mk("Summary", sumAoa, [26, 24]);
+      mk("By week", aoa, [22, 20, 20, 13, 12, 11, 11, 11, 11]);
+      XLSX.writeFile(wb, `jetski-revenue-${from}_to_${to}.xlsx`);
+    } catch (e) {
+      setErr(e.message || "Export failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
@@ -391,7 +434,9 @@ function RevenueView({ rows, calc }) {
           <TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: "auto" }} />
         </div>
         <button onClick={() => { setFrom(monthStart()); setTo(monthEnd()); }} style={{ ...btn("#F1F4F6", C.slate), fontSize: 12, padding: "6px 12px" }}>This month</button>
+        <button onClick={exportRange} disabled={busy} style={{ ...btn("#fff", C.ink), fontSize: 12, padding: "6px 12px", opacity: busy ? 0.6 : 1 }}>{busy ? "Building…" : "⬇ Export Excel"}</button>
       </Row>
+      {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 6 }}>{err}</div>}
 
       <SummaryStrip items={[
         ["Jobs", hits.length],

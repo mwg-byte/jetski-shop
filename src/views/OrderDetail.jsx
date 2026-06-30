@@ -15,6 +15,17 @@ const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
       : []);
 const skiLabel = (s) => [s.year, s.make, s.model].filter(Boolean).join(" ");
 
+function loadXLSX() {
+  return new Promise((resolve, reject) => {
+    if (window.XLSX) return resolve(window.XLSX);
+    const s = document.createElement("script");
+    s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error("Could not load the Excel library — check your connection and try again."));
+    document.head.appendChild(s);
+  });
+}
+
 export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
   const { profile } = useAuth();
   const [order, setOrder] = useState(null);
@@ -272,6 +283,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
   const [payLink, setPayLink] = useState("");
+  const [xlsxBusy, setXlsxBusy] = useState(false);
 
   const publicUrl = (path) => supabase.storage.from("job-media").getPublicUrl(path).data.publicUrl;
 
@@ -436,6 +448,46 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   function unmarkPaid() {
     patchOrder({ paid_in_full: false, paid_at: null, paid_amount: null });
+  }
+  async function exportCostProfit() {
+    setXlsxBusy(true);
+    try {
+      const XLSX = await loadXLSX();
+      const sk = skisOf(order).map(skiLabel).filter(Boolean).join("; ");
+      const aoa = [
+        ["Work order — cost & profit"],
+        ["Customer", order.customer_name || ""],
+        ["Ski", sk],
+        ["Status", order.status],
+        ["Intake", order.created_at ? fmtDate(order.created_at) : ""],
+        ["Picked up", order.closed_at ? fmtDate(order.closed_at) : ""],
+        ["Paid in full", order.paid_in_full ? (order.paid_at ? fmtDate(order.paid_at) : "Yes") : "No"],
+        [],
+        ["PARTS", "Qty", "Unit cost", "Line cost"],
+      ];
+      parts.forEach((p) => aoa.push([p.name, Number(p.qty) || 1, p.cost != null ? round2(Number(p.cost)) : "", round2((Number(p.cost) || 0) * (Number(p.qty) || 1))]));
+      aoa.push(["Parts total", "", "", partsCost]);
+      aoa.push([]);
+      aoa.push(["LABOR", "Hours", "Rate", "Cost"]);
+      laborRows.forEach((r) => aoa.push([r.name, r.hrs, r.rate, r.cost]));
+      aoa.push(["Labor total", "", "", laborCost]);
+      aoa.push([]);
+      aoa.push(["Repair total", "", "", repairTotalNum]);
+      aoa.push(["Total cost", "", "", totalCost]);
+      aoa.push(["Profit", "", "", profit]);
+      aoa.push(["Down payment", "", "", depositNum]);
+      aoa.push(["Balance due", "", "", order.paid_in_full ? 0 : balanceDue]);
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws["!cols"] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Cost & profit");
+      const slug = (order.customer_name || "order").replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, "-").toLowerCase();
+      XLSX.writeFile(wb, `cost-profit-${slug}-${today()}.xlsx`);
+    } catch (e) {
+      window.alert(e.message || "Export failed.");
+    } finally {
+      setXlsxBusy(false);
+    }
   }
 
   return (
@@ -726,6 +778,9 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               </div>
             )}
             <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Labor cost uses each tech's pay rate (set in Crew). Parts cost sums the unit cost entered on parts. Profit = repair total − parts − labor.</div>
+            <Row style={{ marginTop: 10 }}>
+              <button onClick={exportCostProfit} disabled={xlsxBusy} style={{ ...btnSm("#fff", C.ink), opacity: xlsxBusy ? 0.6 : 1 }}>{xlsxBusy ? "Building…" : "⬇ Export to Excel"}</button>
+            </Row>
           </div>
         </>
       )}
