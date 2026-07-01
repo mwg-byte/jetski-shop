@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { supabase, C, DISPLAY, BODY, round2 } from "../lib/supabase";
 
 const RED = "#B23A48";
@@ -88,10 +89,19 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
     </div>
   );
 
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(8,20,30,0.6)", overflow: "auto", padding: 16 }}>
-      <style>{`@media print { body * { visibility: hidden !important; } #inv, #inv * { visibility: visible !important; } #inv { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; } .no-print { display: none !important; } }`}</style>
-      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+  return createPortal(
+    <div className="inv-overlay" style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(8,20,30,0.6)", overflow: "auto", padding: 16 }}>
+      <style>{`@media print {
+        @page { size: letter portrait; margin: 0.4in; }
+        html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+        #root { display: none !important; }
+        .inv-overlay { position: static !important; inset: auto !important; background: #fff !important; padding: 0 !important; overflow: visible !important; z-index: auto !important; }
+        .inv-wrap { max-width: none !important; margin: 0 !important; }
+        #inv { box-shadow: none !important; padding: 0 !important; }
+        .no-print { display: none !important; }
+        .inv-notes { break-inside: avoid; page-break-inside: avoid; }
+      }`}</style>
+      <div className="inv-wrap" style={{ maxWidth: 820, margin: "0 auto" }}>
         <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
@@ -101,13 +111,13 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
         <div id="inv" style={{ background: "#fff", padding: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
           {/* banner */}
           <div style={{ display: "flex", background: RED, color: "#fff", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ flex: 1, padding: "16px", textAlign: "center" }}>
+            <div style={{ flex: 1, padding: "12px 16px", textAlign: "center" }}>
               <div style={{ fontWeight: 700, fontSize: 21, fontFamily: DISPLAY }}>High Country Powersports</div>
               <div style={{ fontSize: 13 }}>245 West 990 North</div>
               <div style={{ fontSize: 13 }}>Orem, Utah 84057</div>
             </div>
-            <div style={{ width: 240, padding: "14px 16px" }}>
-              <div style={{ fontStyle: "italic", fontWeight: 700, fontSize: 30, textAlign: "right", marginBottom: 8, fontFamily: DISPLAY }}>Invoice</div>
+            <div style={{ width: 240, padding: "10px 14px" }}>
+              <div style={{ fontStyle: "italic", fontWeight: 700, fontSize: 26, textAlign: "right", marginBottom: 4, fontFamily: DISPLAY }}>Invoice</div>
               <div style={{ display: "flex", marginBottom: 4 }}>
                 <span style={{ ...bar, minWidth: 70 }}>Number</span>
                 <input value={m.number} onChange={set("number")} placeholder="—" style={boxInp} />
@@ -120,15 +130,15 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
           </div>
 
           {/* bill to */}
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 10 }}>
             <span style={{ ...bar, display: "inline-block", minWidth: 220 }}>Bill To</span>
-            <div style={{ fontSize: 13, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-line", minHeight: 60 }}>
+            <div style={{ fontSize: 13, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-line", minHeight: 36 }}>
               {billTo.join("\n")}
             </div>
           </div>
 
           {/* terms row */}
-          <div style={{ display: "flex", gap: 0, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 0, marginTop: 8 }}>
             {[["Terms", "terms"], ["Customer #", "customerNum"], ["Service Rep", "rep"]].map(([label, key]) => (
               <div key={key} style={{ flex: 1 }}>
                 <span style={{ ...bar, display: "block" }}>{label}</span>
@@ -138,7 +148,7 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
           </div>
 
           {/* line items */}
-          <div style={{ marginTop: 14 }}>
+          <div style={{ marginTop: 10 }}>
             <div style={{ display: "flex", ...bar }}>
               <span style={{ flex: 3 }}>Description</span>
               <span style={{ flex: 1, textAlign: "center" }}>Qty / Hours</span>
@@ -161,7 +171,7 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
           </div>
 
           {/* totals */}
-          <div style={{ display: "flex", gap: 24, marginTop: 24, flexWrap: "wrap" }}>
+          <div className="inv-notes" style={{ display: "flex", gap: 24, marginTop: 14, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 240 }}>
               {totRow("Amount Paid", 0, <input value={m.amountPaid} onChange={set("amountPaid")} inputMode="decimal" style={{ ...boxInp, textAlign: "right" }} />)}
               {totRow("Amount Due", due)}
@@ -178,12 +188,13 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
             </div>
           </div>
 
-          <div style={{ marginTop: 20 }}>
+          <div className="inv-notes" style={{ marginTop: 12 }}>
             <span style={{ ...bar, display: "inline-block", minWidth: 220 }}>Notes</span>
             <textarea value={m.notes} onChange={set("notes")} rows={4} placeholder="Notes for the customer — warranty terms, recommendations, next service due…" style={{ width: "100%", marginTop: 6, fontFamily: BODY, fontSize: 13, color: "#111", border: "1px solid #ddd", borderRadius: 4, padding: "8px 10px", background: "#fff", boxSizing: "border-box", resize: "vertical" }} />
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
