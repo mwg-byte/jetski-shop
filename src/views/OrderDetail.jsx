@@ -26,7 +26,7 @@ function loadXLSX() {
   });
 }
 
-export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
+export default function OrderDetail({ orderId, crew, onBack, canDelete, settings }) {
   const { profile } = useAuth();
   const [order, setOrder] = useState(null);
   const [hours, setHours] = useState([]);
@@ -83,6 +83,8 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 
   const skis = skisOf(order);
   const intakeDays = order.created_at ? Math.floor((Date.now() - new Date(order.created_at).getTime()) / 86400000) : null;
+  const shopRateGlobal = Number(settings?.shop_rate) || 0;
+  const shopRate = order.shop_rate_override != null && order.shop_rate_override !== "" ? Number(order.shop_rate_override) : shopRateGlobal;
 
   const patchOrder = async (patch) => {
     const full = { ...patch };
@@ -235,7 +237,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       {!editingDetails && (
         <button onClick={() => setShowInspection(true)} style={{ marginTop: 10, marginLeft: 12, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Drop-off / pick-up inspection</button>
       )}
-      {showInvoice && <Invoice order={order} parts={parts} hours={hours} onClose={() => setShowInvoice(false)} />}
+      {showInvoice && <Invoice order={order} parts={parts} hours={hours} shopRate={shopRate} onClose={() => setShowInvoice(false)} />}
       {showInspection && <Inspection order={order} canEdit={canDelete} onClose={() => setShowInspection(false)} />}
 
       {/* tabs */}
@@ -252,7 +254,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
       </div>
 
       {tab === "job" || order.kind === "maintenance" ? (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete }} />
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete, shopRate, shopRateGlobal }} />
       ) : (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
       )}
@@ -261,12 +263,12 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete }) {
 }
 
 /* ================= JOB TAB ================= */
-function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr }) {
+function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr, shopRate, shopRateGlobal }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "", ski_id: "" });
   const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
   const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
   const [editPartId, setEditPartId] = useState(null);
-  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", status: "requested", eta: "", cost: "" });
+  const [editPartVals, setEditPartVals] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", status: "requested", eta: "", cost: "", price: "", warranty: "" });
   const [noteText, setNoteText] = useState("");
   const [noteSki, setNoteSki] = useState("");
   const [mediaSki, setMediaSki] = useState("");
@@ -284,8 +286,27 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const [payErr, setPayErr] = useState("");
   const [payLink, setPayLink] = useState("");
   const [xlsxBusy, setXlsxBusy] = useState(false);
+  const [shopRateInput, setShopRateInput] = useState(order.shop_rate_override != null ? String(order.shop_rate_override) : "");
 
   const publicUrl = (path) => supabase.storage.from("job-media").getPublicUrl(path).data.publicUrl;
+
+  // --- shared parts helpers (repair-order table + "Parts taken" edit the same rows) ---
+  const patchPartLocal = (id, patch) => setParts((ps) => ps.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const commitPart = async (id, patch) => { await supabase.from("parts").update(patch).eq("id", id); };
+  const updatePart = async (id, patch) => { patchPartLocal(id, patch); await commitPart(id, patch); };
+  async function addTakenPart(vals = {}) {
+    const { data } = await supabase.from("parts").insert({
+      order_id: orderId, kind: "taken",
+      name: (vals.name || "").trim(), qty: Number(vals.qty) || 1, sku: (vals.sku || "").trim(),
+      note: (vals.note || "").trim(), ski_id: vals.ski_id || null,
+      cost: vals.cost === "" || vals.cost == null ? null : Number(vals.cost),
+      price: vals.price === "" || vals.price == null ? null : Number(vals.price),
+      warranty: vals.warranty || "",
+    }).select().single();
+    if (data) setParts((ps) => [...ps, data]);
+    return data;
+  }
+  async function deletePart(id) { setParts((ps) => ps.filter((x) => x.id !== id)); await supabase.from("parts").delete().eq("id", id); }
 
   async function clockIn() {
     const { data, error } = await supabase.from("job_sessions").insert({ order_id: orderId, tech_id: clockTech }).select().single();
@@ -350,12 +371,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   function startEditPart(p) {
     setEditPartId(p.id);
-    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "", status: p.status || "requested", eta: p.eta || "", cost: p.cost != null ? String(p.cost) : "" });
+    setEditPartVals({ name: p.name || "", qty: String(p.qty || "1"), sku: p.sku || "", note: p.note || "", ski_id: p.ski_id || "", status: p.status || "requested", eta: p.eta || "", cost: p.cost != null ? String(p.cost) : "", price: p.price != null ? String(p.price) : "", warranty: p.warranty || "" });
   }
   async function saveEditPart(p) {
     const name = editPartVals.name.trim();
     if (!name) return;
-    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null, status: editPartVals.status, eta: editPartVals.status === "ordered" ? (editPartVals.eta || null) : null, cost: editPartVals.cost === "" ? null : Number(editPartVals.cost) };
+    const patch = { name, qty: Number(editPartVals.qty) || 1, sku: editPartVals.sku.trim(), note: editPartVals.note.trim(), ski_id: editPartVals.ski_id || null, status: editPartVals.status, eta: editPartVals.status === "ordered" ? (editPartVals.eta || null) : null, cost: editPartVals.cost === "" ? null : Number(editPartVals.cost), price: editPartVals.price === "" ? null : Number(editPartVals.price), warranty: editPartVals.warranty || "" };
     setParts(parts.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setEditPartId(null);
     await supabase.from("parts").update(patch).eq("id", p.id);
@@ -414,6 +435,10 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const depositNum = Number(order.deposit_amount) || 0;
   const profit = round2(repairTotalNum - totalCost);
   const balanceDue = round2(repairTotalNum - depositNum);
+  const partsPriceCustomer = round2(taken.reduce((a, p) => a + (Number(p.price) || 0) * (Number(p.qty) || 1), 0));
+  const laborCharge = round2((Number(shopRate) || 0) * (Number(totalHrs) || 0));
+  const suggestedCharge = round2(partsPriceCustomer + laborCharge);
+  const saveShopRateOverride = () => patchOrder({ shop_rate_override: shopRateInput === "" ? null : Number(shopRateInput) });
   const saveRepairTotal = () => patchOrder({ repair_total: repairTotal === "" ? 0 : Number(repairTotal) });
   const saveDeposit = () => patchOrder({ deposit_amount: deposit === "" ? 0 : Number(deposit) });
   async function requestPayment() {
@@ -475,6 +500,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       aoa.push(["Repair total", "", "", repairTotalNum]);
       aoa.push(["Total cost", "", "", totalCost]);
       aoa.push(["Profit", "", "", profit]);
+      aoa.push([]);
+      aoa.push(["PRICE TO CHARGE CUSTOMER", "", "", ""]);
+      aoa.push(["Parts (customer price)", "", "", partsPriceCustomer]);
+      aoa.push([`Labor — ${totalHrs} hrs @ ${shopRate}/hr`, "", "", laborCharge]);
+      aoa.push(["Suggested price to charge", "", "", suggestedCharge]);
+      aoa.push([]);
       aoa.push(["Down payment", "", "", depositNum]);
       aoa.push(["Balance due", "", "", order.paid_in_full ? 0 : balanceDue]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -687,6 +718,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                   <TextInput placeholder="SKU" value={editPartVals.sku} onChange={(e) => setEditPartVals({ ...editPartVals, sku: e.target.value })} style={{ width: 110 }} />
                   <TextInput placeholder="Note" value={editPartVals.note} onChange={(e) => setEditPartVals({ ...editPartVals, note: e.target.value })} style={{ flex: 1, minWidth: 120 }} />
                   {isMgr && <TextInput type="number" step="0.01" min="0" placeholder="$ cost" value={editPartVals.cost} onChange={(e) => setEditPartVals({ ...editPartVals, cost: e.target.value })} style={{ width: 90 }} />}
+                  <TextInput type="number" step="0.01" min="0" placeholder="$ price" value={editPartVals.price} onChange={(e) => setEditPartVals({ ...editPartVals, price: e.target.value })} style={{ width: 90 }} />
+                  <Select value={editPartVals.warranty} onChange={(e) => setEditPartVals({ ...editPartVals, warranty: e.target.value })} style={{ width: "auto" }}>
+                    <option value="">Warr —</option>
+                    <option value="Y">Warr Y</option>
+                    <option value="N">Warr N</option>
+                  </Select>
                   {multiSki && <SkiPick value={editPartVals.ski_id} onChange={(v) => setEditPartVals({ ...editPartVals, ski_id: v })} />}
                 </Row>
                 <Row style={{ marginTop: 8 }}>
@@ -701,7 +738,8 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 {skiChip(p.ski_id)}
                 <span style={{ flex: 1, color: C.slate }}>{p.note}</span>
                 <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
-                {isMgr && p.cost != null && <span style={{ fontWeight: 700, color: C.ink, fontFamily: BODY }}>{money(Number(p.cost) * Number(p.qty))}</span>}
+                {isMgr && p.cost != null && <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>cost {money(Number(p.cost) * Number(p.qty))}</span>}
+                {p.price != null && <span style={{ fontWeight: 700, color: C.teal, fontFamily: BODY }}>{money(Number(p.price) * Number(p.qty))}</span>}
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
                 <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
               </Row>
@@ -739,7 +777,9 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
             <Row style={{ gap: 12, flexWrap: "wrap" }}>
               <div><Label>Repair total ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={repairTotal} onChange={(e) => setRepairTotal(e.target.value)} onBlur={saveRepairTotal} style={{ width: 130 }} /></div>
               <div><Label>Down payment ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={deposit} onChange={(e) => setDeposit(e.target.value)} onBlur={saveDeposit} style={{ width: 130 }} /></div>
+              <div><Label>Shop rate ($/hr)</Label><TextInput type="number" step="1" min="0" placeholder={shopRateGlobal ? String(shopRateGlobal) : "0"} value={shopRateInput} onChange={(e) => setShopRateInput(e.target.value)} onBlur={saveShopRateOverride} style={{ width: 130 }} /></div>
             </Row>
+            <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 4 }}>Shop rate blank = shop default ({money(shopRateGlobal)}/hr). Enter a value to override it for this order.</div>
             <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
               {laborRows.map((r) => (
                 <Row key={r.id} style={{ justifyContent: "space-between", fontSize: 13, fontFamily: BODY, color: C.slate, marginBottom: 2 }}>
@@ -752,6 +792,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               <CostLine label="Total cost" value={money(totalCost)} bold />
               <CostLine label="Repair total" value={money(repairTotalNum)} />
               <CostLine label="Profit" value={money(profit)} color={profit >= 0 ? C.green : C.red} bold />
+              <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 8, paddingTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: C.slate, fontFamily: BODY, marginBottom: 2 }}>Price to charge customer</div>
+                <CostLine label="Parts (customer price)" value={money(partsPriceCustomer)} />
+                <CostLine label={`Labor — ${totalHrs} hrs @ ${money(shopRate)}/hr`} value={money(laborCharge)} />
+                <CostLine label="Suggested price to charge" value={money(suggestedCharge)} color={C.teal} bold />
+              </div>
               <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 8, paddingTop: 8 }}>
                 <CostLine label="Down payment" value={money(depositNum)} />
                 <CostLine label="Balance due" value={money(order.paid_in_full ? 0 : balanceDue)} color={order.paid_in_full || balanceDue <= 0 ? C.green : C.orange} bold />
@@ -821,7 +867,21 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         </div>
       )}
 
-      {order.kind !== "maintenance" && <RepairOrder orderId={orderId} />}
+      {order.kind !== "maintenance" && (
+        <RepairOrder
+          orderId={orderId}
+          taken={taken}
+          patchPartLocal={patchPartLocal}
+          commitPart={commitPart}
+          updatePart={updatePart}
+          addTakenPart={addTakenPart}
+          deletePart={deletePart}
+          totalHrs={totalHrs}
+          shopRate={shopRate}
+          laborCharge={laborCharge}
+          money={money}
+        />
+      )}
     </>
   );
 }

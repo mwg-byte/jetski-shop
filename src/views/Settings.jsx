@@ -7,6 +7,7 @@ export default function Settings({ settings, onSaved, onBack }) {
     mileage_rate: settings?.mileage_rate ?? 0.7,
     ot_weekly_threshold: settings?.ot_weekly_threshold ?? 40,
     ot_multiplier: settings?.ot_multiplier ?? 1.5,
+    shop_rate: settings?.shop_rate ?? 0,
   });
   const [msg, setMsg] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -17,6 +18,7 @@ export default function Settings({ settings, onSaved, onBack }) {
       mileage_rate: Number(f.mileage_rate) || 0,
       ot_weekly_threshold: Number(f.ot_weekly_threshold) || 40,
       ot_multiplier: Number(f.ot_multiplier) || 1.5,
+      shop_rate: Number(f.shop_rate) || 0,
     };
     const { error } = await supabase.from("settings").update(payload).eq("id", 1);
     if (error) setMsg(error.message);
@@ -32,6 +34,15 @@ export default function Settings({ settings, onSaved, onBack }) {
       <div style={{ maxWidth: 200 }}>
         <Label>Reimbursement rate ($/mile)</Label>
         <TextInput type="number" step="0.005" min="0" value={f.mileage_rate} onChange={set("mileage_rate")} />
+      </div>
+
+      <SectionTitle>Shop labor rate</SectionTitle>
+      <div style={{ maxWidth: 200 }}>
+        <Label>Rate charged to customer ($/hr)</Label>
+        <TextInput type="number" step="1" min="0" value={f.shop_rate} onChange={set("shop_rate")} />
+      </div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
+        Default hourly rate used to price labor on a work order. Each order can override it.
       </div>
 
       <SectionTitle>Overtime</SectionTitle>

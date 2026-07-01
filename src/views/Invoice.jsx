@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase, C, DISPLAY, BODY, round2 } from "../lib/supabase";
 
 const RED = "#B23A48";
@@ -9,7 +9,7 @@ const cellInp = { fontFamily: BODY, fontSize: 13, color: "#111", border: "none",
 const boxInp = { fontFamily: BODY, fontSize: 13, color: "#111", border: "none", background: "#fff", padding: "3px 8px", width: "100%", boxSizing: "border-box", textAlign: "right" };
 const bar = { background: DARK, color: "#fff", fontSize: 12, fontWeight: 600, padding: "3px 8px", fontFamily: BODY };
 
-export default function Invoice({ order, parts = [], hours = [], onClose }) {
+export default function Invoice({ order, parts = [], hours = [], shopRate = 0, onClose }) {
   const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
     ? o.skis
     : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
@@ -20,24 +20,49 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
   const taken = parts.filter((p) => p.kind === "taken");
 
   const [lines, setLines] = useState([]);
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("repair_orders").select("data").eq("order_id", order.id).maybeSingle();
-      const rlines = (data?.data?.lines || []).filter((l) => (l.name || "").trim() || Number(l.price) > 0);
-      let init;
-      if (rlines.length) {
-        init = rlines.map((l) => ({ desc: [l.part_no, l.name].filter(Boolean).join(" — ") || l.name || "", qty: String(l.qty || "1"), rate: String(l.price || ""), tax: true }));
-      } else {
-        init = taken.map((p) => ({ desc: p.name, qty: String(p.qty), rate: "", tax: true }));
-      }
-      init.push({ desc: "Labor", qty: String(totalHrs || ""), rate: "", tax: false });
-      setLines(init);
-    })();
-  }, [order.id]);
   const [m, setM] = useState({
     number: "", date: new Date().toLocaleDateString(), terms: "", customerNum: "", rep: "",
     taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0", notes: "",
   });
+  const [saved, setSaved] = useState("");
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("invoices").select("data").eq("order_id", order.id).maybeSingle();
+      const inv = data?.data;
+      if (inv && Array.isArray(inv.lines)) {
+        // Restore the exact invoice as it was left.
+        if (inv.m && typeof inv.m === "object") setM((prev) => ({ ...prev, ...inv.m }));
+        setLines(inv.lines);
+      } else {
+        // First time — build the lines from the parts taken + labor.
+        const init = taken.map((p) => ({
+          desc: [p.sku, p.name].filter(Boolean).join(" — ") || p.name || "",
+          qty: String(p.qty || "1"),
+          rate: p.price != null ? String(p.price) : "",
+          tax: true,
+        }));
+        init.push({ desc: "Labor", qty: String(totalHrs || ""), rate: shopRate ? String(shopRate) : "", tax: false });
+        setLines(init);
+      }
+      loaded.current = true;
+    })();
+  }, [order.id]);
+
+  // Autosave whatever is on the invoice so it's all there next time it's opened.
+  useEffect(() => {
+    if (!loaded.current) return;
+    setSaved("Saving…");
+    const t = setTimeout(async () => {
+      const { error } = await supabase.from("invoices").upsert(
+        { order_id: order.id, data: { m, lines }, updated_at: new Date().toISOString() },
+        { onConflict: "order_id" }
+      );
+      setSaved(error ? "Couldn't save" : "Saved ✓");
+    }, 600);
+    return () => clearTimeout(t);
+  }, [m, lines]);
   const skiLines = skis.map((s) => {
     const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ");
     const ids = [s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ");
@@ -70,6 +95,7 @@ export default function Invoice({ order, parts = [], hours = [], onClose }) {
         <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
+          {saved && <span style={{ alignSelf: "center", fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: BODY, opacity: 0.9 }}>{saved}</span>}
         </div>
 
         <div id="inv" style={{ background: "#fff", padding: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>

@@ -145,7 +145,7 @@ export default function App() {
           <MaintenanceForm crew={crew} nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { loadOrders(); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "detail" ? (
-          <OrderDetail orderId={view.id} crew={crew} canDelete={mgr}
+          <OrderDetail orderId={view.id} crew={crew} canDelete={mgr} settings={settings}
             onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "timeclock" ? (
           <ShiftClock crew={crew} onBack={() => { loadOrders(); setView({ name: "list" }); }} />

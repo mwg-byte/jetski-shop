@@ -1,42 +1,53 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase, C, BODY } from "../lib/supabase";
 import { Row, TextInput, Select, Label, SectionTitle, btn } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
 const cell = { fontFamily: BODY, fontSize: 13, color: C.ink, border: "none", background: "transparent", padding: "6px 6px", boxSizing: "border-box" };
-const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
-const blankLine = () => ({ qty: "1", part_no: "", name: "", price: "", warranty: "" });
-const blankRepair = () => ({ lines: [blankLine()], recommendations: "", estimated_cost: "", estimate_charge: "", basis: "", labor_type: "", payment: "", lube: false, parts_disposition: "", authorized_by: "" });
+const fallbackMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+const blankMeta = () => ({ recommendations: "", estimated_cost: "", estimate_charge: "", basis: "", labor_type: "", payment: "", lube: false, parts_disposition: "", authorized_by: "" });
 
-export default function RepairOrder({ orderId }) {
+export default function RepairOrder({ orderId, taken = [], patchPartLocal, commitPart, updatePart, addTakenPart, deletePart, totalHrs = 0, shopRate = 0, laborCharge = 0, money = fallbackMoney }) {
   const { profile } = useAuth();
   const [d, setD] = useState(null);
   const [saving, setSaving] = useState("");
+  const migratedRef = useRef(false);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("repair_orders").select("data").eq("order_id", orderId).maybeSingle();
-      const saved = data?.data;
-      if (saved && Array.isArray(saved.lines)) {
-        setD({ ...blankRepair(), ...saved, lines: saved.lines.length ? saved.lines : [blankLine()] });
-      } else {
-        setD(blankRepair());
+      const saved = data?.data || {};
+      // One-time migration: earlier repair orders stored parts inside data.lines.
+      // Move any named line into the shared parts list, then clear it.
+      const legacy = Array.isArray(saved.lines) ? saved.lines.filter((l) => (l.name || "").trim() || Number(l.price) > 0) : [];
+      if (legacy.length && !saved._linesMigrated && !migratedRef.current && addTakenPart) {
+        migratedRef.current = true;
+        for (const l of legacy) {
+          await addTakenPart({ name: l.name, qty: l.qty, sku: l.part_no, price: l.price, warranty: l.warranty });
+        }
+        const cleaned = { ...blankMeta(), ...saved, _linesMigrated: true };
+        delete cleaned.lines;
+        setD(cleaned);
+        await supabase.from("repair_orders").upsert(
+          { order_id: orderId, data: cleaned, updated_by: profile.id, updated_at: new Date().toISOString() },
+          { onConflict: "order_id" }
+        );
+        return;
       }
+      const { lines, ...meta } = saved;
+      setD({ ...blankMeta(), ...meta });
     })();
   }, [orderId]);
 
   if (!d) return null;
 
   const setField = (k, v) => setD((p) => ({ ...p, [k]: v }));
-  const setLine = (i, k, v) => setD((p) => ({ ...p, lines: p.lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)) }));
-  const addLine = () => setD((p) => ({ ...p, lines: [...p.lines, blankLine()] }));
-  const removeLine = (i) => setD((p) => ({ ...p, lines: p.lines.filter((_, idx) => idx !== i) }));
-  const totalParts = d.lines.reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  const totalParts = taken.reduce((a, p) => a + (Number(p.qty) || 0) * (Number(p.price) || 0), 0);
 
-  async function save() {
+  async function saveMeta() {
     setSaving("Saving…");
     const { error } = await supabase.from("repair_orders").upsert(
-      { order_id: orderId, data: d, updated_by: profile.id, updated_at: new Date().toISOString() },
+      { order_id: orderId, data: { ...d, _linesMigrated: true }, updated_by: profile.id, updated_at: new Date().toISOString() },
       { onConflict: "order_id" }
     );
     setSaving(error ? "Couldn't save — try again" : "Saved ✓");
@@ -46,7 +57,9 @@ export default function RepairOrder({ orderId }) {
   return (
     <>
       <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>Total parts {money(totalParts)}</span>}>Repair order</SectionTitle>
-      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginBottom: 8 }}>All parts new unless specified — U: used, R: rebuilt, RC: reconditioned. Price is per unit; these lines flow into the invoice.</div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginBottom: 8 }}>
+        Customer-facing parts. This list is shared with "Parts taken" above — add or change a part in either place and it updates both. Price is what the customer pays; these lines flow into the invoice.
+      </div>
 
       <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}`, marginBottom: 8 }}>
         <div style={{ display: "flex", background: C.ink, color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: BODY, textTransform: "uppercase", letterSpacing: "0.03em" }}>
@@ -57,18 +70,28 @@ export default function RepairOrder({ orderId }) {
           <span style={{ width: 52, padding: "5px 6px", textAlign: "center" }}>Warr.</span>
           <span style={{ width: 28 }} />
         </div>
-        {d.lines.map((l, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${C.line}` }}>
-            <input value={l.qty} onChange={(e) => setLine(i, "qty", e.target.value)} inputMode="decimal" style={{ ...cell, width: 48 }} />
-            <input value={l.part_no} onChange={(e) => setLine(i, "part_no", e.target.value)} style={{ ...cell, width: 90 }} />
-            <input value={l.name} onChange={(e) => setLine(i, "name", e.target.value)} placeholder="Part name" style={{ ...cell, flex: 1 }} />
-            <input value={l.price} onChange={(e) => setLine(i, "price", e.target.value)} inputMode="decimal" placeholder="0.00" style={{ ...cell, width: 80, textAlign: "right" }} />
-            <span onClick={() => setLine(i, "warranty", l.warranty === "Y" ? "N" : l.warranty === "N" ? "" : "Y")} style={{ width: 52, textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 13, color: l.warranty === "Y" ? C.green : l.warranty === "N" ? C.red : "#bbb", fontFamily: BODY }}>{l.warranty || "—"}</span>
-            <button onClick={() => removeLine(i)} style={{ width: 28, color: C.red, fontSize: 13 }}>✕</button>
+        {taken.length === 0 && (
+          <div style={{ padding: "8px 8px", fontSize: 13, color: C.slate, fontFamily: BODY, borderBottom: `1px solid ${C.line}` }}>No parts yet — add one below or in "Parts taken" above.</div>
+        )}
+        {taken.map((p) => (
+          <div key={p.id} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${C.line}` }}>
+            <input value={p.qty ?? ""} onChange={(e) => patchPartLocal(p.id, { qty: e.target.value })} onBlur={(e) => commitPart(p.id, { qty: Number(e.target.value) || 1 })} inputMode="decimal" style={{ ...cell, width: 48 }} />
+            <input value={p.sku || ""} onChange={(e) => patchPartLocal(p.id, { sku: e.target.value })} onBlur={(e) => commitPart(p.id, { sku: e.target.value })} style={{ ...cell, width: 90 }} />
+            <input value={p.name || ""} onChange={(e) => patchPartLocal(p.id, { name: e.target.value })} onBlur={(e) => commitPart(p.id, { name: e.target.value })} placeholder="Part name" style={{ ...cell, flex: 1 }} />
+            <input value={p.price ?? ""} onChange={(e) => patchPartLocal(p.id, { price: e.target.value })} onBlur={(e) => commitPart(p.id, { price: e.target.value === "" ? null : Number(e.target.value) })} inputMode="decimal" placeholder="0.00" style={{ ...cell, width: 80, textAlign: "right" }} />
+            <span onClick={() => updatePart(p.id, { warranty: p.warranty === "Y" ? "N" : p.warranty === "N" ? "" : "Y" })} style={{ width: 52, textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 13, color: p.warranty === "Y" ? C.green : p.warranty === "N" ? C.red : "#bbb", fontFamily: BODY }}>{p.warranty || "—"}</span>
+            <button onClick={() => deletePart(p.id)} style={{ width: 28, color: C.red, fontSize: 13 }}>✕</button>
           </div>
         ))}
       </div>
-      <button onClick={addLine} style={{ fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>+ Add part</button>
+      <button onClick={() => addTakenPart({})} style={{ fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>+ Add part</button>
+
+      <div style={{ marginTop: 10, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#F6F8F9", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
+          Labor — <b style={{ color: C.ink }}>{totalHrs} hrs</b> from the hour log{shopRate > 0 ? ` @ ${money(shopRate)}/hr` : ""}
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>Labor charge {money(laborCharge)}</span>
+      </div>
 
       <div style={{ marginTop: 12 }}>
         <Label>Mechanic's recommendations</Label>
@@ -108,9 +131,10 @@ export default function RepairOrder({ orderId }) {
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: BODY, fontSize: 14, color: C.ink, cursor: "pointer" }}>
           <input type="checkbox" checked={!!d.lube} onChange={(e) => setField("lube", e.target.checked)} /> Lube
         </label>
-        <button onClick={save} style={{ ...btn(C.teal), marginLeft: "auto" }}>Save repair order</button>
+        <button onClick={saveMeta} style={{ ...btn(C.teal), marginLeft: "auto" }}>Save repair order</button>
         {saving && <span style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>{saving}</span>}
       </Row>
+      <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 6 }}>Parts save automatically. "Save repair order" saves the recommendations and the fields above.</div>
     </>
   );
 }
