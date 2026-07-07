@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, C, DISPLAY, BODY, fmtDate } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, fmtDate, REPAIR_STATUSES } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, LiveDot } from "../lib/ui";
 
 const ACTIVE_STATUSES = ["intake", "diagnosing", "awaiting_deposit", "awaiting_parts", "in_repair", "testing"];
@@ -13,10 +13,20 @@ const GROUPS = [
   { key: "completed", label: "Completed", statuses: ["closed"] },
 ];
 
-export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew }) {
-  const [tab, setTab] = useState("active");
-  const [techFilter, setTechFilter] = useState("all");
-  const [search, setSearch] = useState("");
+export function WorkOrderList({
+  orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew,
+  tab: tabProp, setTab: setTabProp, techFilter: techFilterProp, setTechFilter: setTechFilterProp, search: searchProp, setSearch: setSearchProp,
+}) {
+  // Falls back to local state if the parent doesn't pass controlled state/setters in.
+  const [tabLocal, setTabLocal] = useState("active");
+  const [techFilterLocal, setTechFilterLocal] = useState("all");
+  const [searchLocal, setSearchLocal] = useState("");
+  const tab = tabProp ?? tabLocal;
+  const setTab = setTabProp ?? setTabLocal;
+  const techFilter = techFilterProp ?? techFilterLocal;
+  const setTechFilter = setTechFilterProp ?? setTechFilterLocal;
+  const search = searchProp ?? searchLocal;
+  const setSearch = setSearchProp ?? setSearchLocal;
   const q = search.trim().toLowerCase();
 
   const matches = (o) =>
@@ -101,6 +111,11 @@ export function WorkOrderList({ orders, crew, liveCounts, assignees = {}, canCre
                     {live > 0 && <span style={{ color: C.orange, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LiveDot color={C.orange} /> {live} on the clock</span>}
                     <span>{names.length ? names.join(", ") : "Unassigned"}</span>
                     {o.status === "ready" && o.customer_contacted && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.green + "1A", color: C.green }}>Contacted</span>}
+                    {REPAIR_STATUSES.includes(o.status) && o.in_repair_started_at && (() => {
+                      const rd = Math.floor((Date.now() - new Date(o.in_repair_started_at).getTime()) / 86400000);
+                      const col = rd >= 14 ? C.red : rd >= 7 ? C.orange : C.teal;
+                      return <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: col + "1A", color: col }}>🔧 {rd}d in repair</span>;
+                    })()}
                     {o.scheduled_date && (() => {
                       const sd = String(o.scheduled_date).slice(0, 10);
                       const past = sd < new Date().toISOString().slice(0, 10);

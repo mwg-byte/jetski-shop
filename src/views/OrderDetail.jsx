@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase, C, DISPLAY, BODY, STAGES, stageOf, PART_STATUSES, PART_COLORS, TEST_RESULTS, TEST_COLORS, today, round2, fmtDate, fmtElapsed } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, STAGES, stageOf, PART_STATUSES, PART_COLORS, TEST_RESULTS, TEST_COLORS, REPAIR_STATUSES, today, round2, fmtDate, fmtElapsed } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, btnSm, LiveDot, inputStyle } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 import Invoice from "./Invoice";
@@ -88,7 +88,12 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
 
   const patchOrder = async (patch) => {
     const full = { ...patch };
-    if ("status" in patch) full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
+    if ("status" in patch) {
+      full.closed_at = patch.status === "closed" ? new Date().toISOString() : null;
+      const wasRepair = REPAIR_STATUSES.includes(order.status);
+      const nowRepair = REPAIR_STATUSES.includes(patch.status);
+      if (nowRepair && !wasRepair) full.in_repair_started_at = new Date().toISOString();
+    }
     setOrder({ ...order, ...full });
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
@@ -155,6 +160,10 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
         <span>Intake <b style={{ color: C.ink }}>{fmtDate(order.created_at)}</b></span>
         <span>Picked up <b style={{ color: C.ink }}>{order.closed_at ? fmtDate(order.closed_at) : "—"}</b></span>
         {!order.closed_at && intakeDays != null && <span style={{ color: intakeDays >= 30 ? C.red : intakeDays >= 14 ? C.orange : C.slate, fontWeight: 700 }}>{intakeDays}d in shop</span>}
+        {REPAIR_STATUSES.includes(order.status) && order.in_repair_started_at && (() => {
+          const repairDays = Math.floor((Date.now() - new Date(order.in_repair_started_at).getTime()) / 86400000);
+          return <span style={{ color: repairDays >= 14 ? C.red : repairDays >= 7 ? C.orange : C.teal, fontWeight: 700 }}>🔧 {repairDays}d in repair</span>;
+        })()}
       </Row>
       {order.kind === "maintenance" && (
         <span style={{ display: "inline-block", marginTop: 8, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: "#A162071A", color: "#A16207" }}>Maintenance task</span>

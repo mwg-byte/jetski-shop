@@ -25,6 +25,7 @@ export const STAGES = [
   { key: "closed", label: "Closed", color: "#334155" },
 ];
 export const stageOf = (k) => STAGES.find((s) => s.key === k) || STAGES[0];
+export const REPAIR_STATUSES = ["in_repair", "testing"];
 export const PART_STATUSES = ["requested", "ordered", "received"];
 export const PART_COLORS = { requested: "#B45309", ordered: "#4338CA", received: "#15803D" };
 export const TEST_RESULTS = ["pending", "passed", "failed"];

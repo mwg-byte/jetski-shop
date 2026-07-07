@@ -26,6 +26,7 @@ export default function App() {
   const mgr = isManager(profile.role);
   const canMaint = ["owner", "manager", "maintenance"].includes(profile.role);
   const [view, setView] = useState({ name: "home" });
+  const [listState, setListState] = useState({ tab: "active", techFilter: "all", search: "" });
   const [orders, setOrders] = useState([]);
   const [crew, setCrew] = useState([]);
   const [liveCounts, setLiveCounts] = useState({});
@@ -181,7 +182,10 @@ export default function App() {
           <Settings settings={settings} onSaved={setSettings} onBack={() => setView({ name: "list" })} />
         ) : (
           <WorkOrderList orders={orders} crew={crew} liveCounts={liveCounts} assignees={assignees} canCreate={mgr}
-            onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onNew={() => setView({ name: "new" })} />
+            onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onNew={() => setView({ name: "new" })}
+            tab={listState.tab} setTab={(v) => setListState((s) => ({ ...s, tab: v }))}
+            techFilter={listState.techFilter} setTechFilter={(v) => setListState((s) => ({ ...s, techFilter: v }))}
+            search={listState.search} setSearch={(v) => setListState((s) => ({ ...s, search: v }))} />
         )}
       </main>
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase, C, DISPLAY, BODY, round2, fmtDate } from "../lib/supabase";
+import { supabase, C, DISPLAY, BODY, round2, fmtDate, today, isManager } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, btn, btnSm } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
@@ -24,8 +24,14 @@ const overlapMs = (s, e, ws, we) => {
 export default function Payroll({ crew, settings, onBack }) {
   const { profile } = useAuth();
   const isOwner = profile.role === "owner";
+  const mgr = isManager(profile.role);
   const [pending, setPending] = useState([]);
   const [pendingTrips, setPendingTrips] = useState([]);
+  const [manualReimb, setManualReimb] = useState([]);
+  const [mrForm, setMrForm] = useState({ tech_id: "", expense_date: today(), amount: "", description: "" });
+  const [mrPaidNow, setMrPaidNow] = useState(false);
+  const [mrErr, setMrErr] = useState("");
+  const [mrSaving, setMrSaving] = useState(false);
   const [start, setStart] = useState(weekStart(new Date().toISOString().slice(0, 10)));
   const [periodLen, setPeriodLen] = useState(7); // 7 or 14 days
   const [shifts, setShifts] = useState([]);
@@ -56,7 +62,48 @@ export default function Payroll({ crew, settings, onBack }) {
   useEffect(() => {
     supabase.from("expenses").select("*").eq("reimbursed", false).order("expense_date").then(({ data }) => setPending(data || []));
     supabase.from("trips").select("*").eq("reimbursed", false).order("trip_date").then(({ data }) => setPendingTrips(data || []));
+    supabase.from("expenses").select("*").eq("source", "manual").order("expense_date", { ascending: false }).then(({ data }) => setManualReimb(data || []));
   }, []);
+
+  useEffect(() => {
+    if (!mrForm.tech_id && crew.length) setMrForm((f) => ({ ...f, tech_id: crew[0].id }));
+  }, [crew]);
+
+  async function addManualReimbursement() {
+    const amt = Number(mrForm.amount);
+    if (!mrForm.tech_id || !amt || amt <= 0 || !mrForm.description.trim()) {
+      setMrErr("Pick a person, enter an amount greater than 0, and a short note.");
+      return;
+    }
+    setMrErr(""); setMrSaving(true);
+    const patch = mrPaidNow ? { reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id } : { reimbursed: false };
+    const { data, error } = await supabase.from("expenses").insert({
+      tech_id: mrForm.tech_id, expense_date: mrForm.expense_date, amount: amt,
+      description: mrForm.description.trim(), source: "manual", ...patch,
+    }).select().single();
+    setMrSaving(false);
+    if (error) { setMrErr(error.message); return; }
+    setManualReimb((cur) => [data, ...cur]);
+    if (!mrPaidNow) setPending((cur) => [...cur, data]);
+    if (data.expense_date >= start && data.expense_date < end) setExpenses((cur) => [...cur, data]);
+    setMrForm({ tech_id: mrForm.tech_id, expense_date: today(), amount: "", description: "" });
+    setMrPaidNow(false);
+  }
+
+  async function toggleManualPaid(x) {
+    const patch = x.reimbursed
+      ? { reimbursed: false, reimbursed_at: null, reimbursed_by: null }
+      : { reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id };
+    setManualReimb((cur) => cur.map((m) => (m.id === x.id ? { ...m, ...patch } : m)));
+    setPending((cur) => (!patch.reimbursed ? (cur.some((p) => p.id === x.id) ? cur : [...cur, { ...x, ...patch }]) : cur.filter((p) => p.id !== x.id)));
+    await supabase.from("expenses").update(patch).eq("id", x.id);
+  }
+
+  async function removeManualReimbursement(x) {
+    setManualReimb((cur) => cur.filter((m) => m.id !== x.id));
+    setPending((cur) => cur.filter((p) => p.id !== x.id));
+    await supabase.from("expenses").delete().eq("id", x.id);
+  }
 
   async function markPaid(x) {
     setPending((cur) => cur.filter((p) => p.id !== x.id));
@@ -115,6 +162,7 @@ export default function Payroll({ crew, settings, onBack }) {
   }
 
   const money = (n) => `$${n.toFixed(2)}`;
+  const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "—";
 
   return (
     <Card>
@@ -227,6 +275,54 @@ export default function Payroll({ crew, settings, onBack }) {
             </div>
           );
         })
+      )}
+
+      <SectionTitle right={<span style={{ fontSize: 14, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{money(round2(manualReimb.reduce((a, x) => a + Number(x.amount), 0)))} total</span>}>Manual reimbursements</SectionTitle>
+      <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 2, marginBottom: 8 }}>
+        Reimbursements the owner or manager enters directly — bonuses, cash advances, anything paid outside the normal expense/receipt flow. These count toward gross pay just like a submitted expense.
+      </p>
+      {mgr && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9", marginBottom: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            <div>
+              <Label>Who</Label>
+              <Select value={mrForm.tech_id} onChange={(e) => setMrForm({ ...mrForm, tech_id: e.target.value })} style={{ width: "100%" }}>
+                {crew.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+              </Select>
+            </div>
+            <div><Label>Date</Label><TextInput type="date" value={mrForm.expense_date} onChange={(e) => setMrForm({ ...mrForm, expense_date: e.target.value })} /></div>
+            <div><Label>Amount ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={mrForm.amount} onChange={(e) => setMrForm({ ...mrForm, amount: e.target.value })} /></div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Label>What is it for?</Label>
+            <TextInput placeholder="Tool reimbursement, cash advance, bonus…" value={mrForm.description} onChange={(e) => setMrForm({ ...mrForm, description: e.target.value })} />
+          </div>
+          <Row style={{ marginTop: 10, alignItems: "center" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontFamily: BODY, color: C.slate }}>
+              <input type="checkbox" checked={mrPaidNow} onChange={(e) => setMrPaidNow(e.target.checked)} />
+              Already paid this out
+            </label>
+            <button onClick={addManualReimbursement} disabled={mrSaving} style={{ ...btn(C.teal), marginLeft: "auto", opacity: mrSaving ? 0.6 : 1 }}>{mrSaving ? "Saving…" : "+ Add reimbursement"}</button>
+          </Row>
+          {mrErr && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{mrErr}</div>}
+        </div>
+      )}
+      {manualReimb.length === 0 ? (
+        <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No manual reimbursements yet.</div>
+      ) : (
+        <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
+          {manualReimb.map((x) => (
+            <Row key={x.id} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ color: C.slate, minWidth: 70 }}>{fmtDate(x.expense_date)}</span>
+              <span style={{ fontWeight: 600, color: C.ink }}>{nameOf(x.tech_id)}</span>
+              <span style={{ flex: 1, color: C.ink, minWidth: 120 }}>{x.description}</span>
+              <span style={{ fontWeight: 700, color: C.green }}>{money(Number(x.amount))}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: (x.reimbursed ? C.green : C.orange) + "1A", color: x.reimbursed ? C.green : C.orange }}>{x.reimbursed ? "Paid" : "Unpaid"}</span>
+              {isOwner && <button onClick={() => toggleManualPaid(x)} style={btnSm(x.reimbursed ? C.slate : C.teal)}>{x.reimbursed ? "Mark unpaid" : "Mark paid"}</button>}
+              {mgr && <button onClick={() => removeManualReimbursement(x)} style={{ fontSize: 12, color: C.red }}>remove</button>}
+            </Row>
+          ))}
+        </div>
       )}
 
       <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 12 }}>
