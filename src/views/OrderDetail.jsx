@@ -11,9 +11,52 @@ const nameOf = (crew, id) => crew.find((t) => t.id === id)?.display_name || "—
 const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
   ? o.skis
   : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
-      ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
+      ? [{ type: o.type || "", year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
       : []);
 const skiLabel = (s) => [s.year, s.make, s.model].filter(Boolean).join(" ");
+const unitLabel = (s) => [s.type, s.year, s.make, s.model].filter(Boolean).join(" ");
+const quoteTotal = (d) => {
+  const lines = Array.isArray(d?.lines) ? d.lines : [];
+  const mm = d?.m || {};
+  const amt = (l) => (Number(l.qty) || 0) * (Number(l.rate) || 0);
+  const sub = lines.reduce((a, l) => a + amt(l), 0);
+  const taxable = lines.filter((l) => l.tax).reduce((a, l) => a + amt(l), 0);
+  const tax = taxable * (Number(mm.taxRate) || 0) / 100;
+  return sub - (Number(mm.discount) || 0) + (Number(mm.shipping) || 0) + tax;
+};
+
+function QuotesPanel({ quotes, skis, isMaint, onOpen, onNew, onDelete }) {
+  const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const unitById = (id) => skis.find((s) => s.id === id);
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: quotes.length ? 8 : 6 }}>Quotes / Invoices</div>
+      {quotes.length === 0 && <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginBottom: 10 }}>No quotes yet. Make one for the whole order, or a separate quote per unit.</div>}
+      {quotes.map((qt) => {
+        const u = unitById(qt.unit_id);
+        const label = qt.title || (u ? (unitLabel(u) || "Unit") : "Full order");
+        return (
+          <div key={qt.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 6, marginBottom: 6 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: BODY, fontSize: 14, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+              <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{money(quoteTotal(qt.data))}{qt.updated_at ? ` · ${fmtDate(qt.updated_at)}` : ""}</div>
+            </div>
+            <button onClick={() => onOpen(qt.id)} style={{ fontSize: 13, fontWeight: 700, color: C.teal, fontFamily: BODY }}>Open</button>
+            <button onClick={() => { if (window.confirm(`Delete quote "${label}"?`)) onDelete(qt.id); }} style={{ fontSize: 14, color: C.red }}>✕</button>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={() => onNew(null)} style={{ fontSize: 12, fontWeight: 700, fontFamily: BODY, padding: "6px 12px", borderRadius: 6, background: C.teal, color: "#fff" }}>+ Quote: full order</button>
+        {!isMaint && skis.map((s, i) => (
+          <button key={s.id || i} onClick={() => onNew(s)} style={{ fontSize: 12, fontWeight: 700, fontFamily: BODY, padding: "6px 12px", borderRadius: 6, background: C.paleTeal, color: C.teal }}>
+            + Quote: {unitLabel(s) || `Unit ${i + 1}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function loadXLSX() {
   return new Promise((resolve, reject) => {
@@ -41,7 +84,8 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
   const [tab, setTab] = useState("job");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
-  const [showInvoice, setShowInvoice] = useState(false);
+  const [quotes, setQuotes] = useState([]);
+  const [openQuoteId, setOpenQuoteId] = useState(null);
   const [showInspection, setShowInspection] = useState(false);
   const [detForm, setDetForm] = useState({});
   const [, tick] = useState(0);
@@ -71,7 +115,24 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
     setNotes(no.data || []);
     const rmap = {}; (pr.data || []).forEach((r) => { rmap[r.tech_id] = Number(r.hourly_rate) || 0; }); setRates(rmap);
   }
-  useEffect(() => { loadAll(); }, [orderId]);
+  async function loadQuotes() {
+    const { data } = await supabase.from("invoices").select("id, title, unit_id, data, updated_at").eq("order_id", orderId).order("updated_at");
+    setQuotes(data || []);
+  }
+  useEffect(() => { loadAll(); loadQuotes(); }, [orderId]);
+
+  async function createQuote(unit) {
+    const unitId = unit?.id || "";
+    const title = unit ? (unitLabel(unit) || "Unit") : "Full order";
+    const { data, error } = await supabase.from("invoices")
+      .insert({ order_id: orderId, unit_id: unitId, title, data: {} })
+      .select("id, title, unit_id, data, updated_at").single();
+    if (!error && data) { setQuotes((qs) => [...qs, data]); setOpenQuoteId(data.id); }
+  }
+  async function deleteQuote(id) {
+    await supabase.from("invoices").delete().eq("id", id);
+    setQuotes((qs) => qs.filter((q) => q.id !== id));
+  }
 
   useEffect(() => {
     if (!sessions.length && !lakeSession) return;
@@ -98,7 +159,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
     await supabase.from("work_orders").update(full).eq("id", orderId);
   };
   function openDetails() {
-    const sk = skisOf(order).map((s) => ({ id: s.id, year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "", issue: s.issue || "" }));
+    const sk = skisOf(order).map((s) => ({ id: s.id, type: s.type || "", year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "", issue: s.issue || "" }));
     if (sk.length && !sk.some((s) => s.issue) && (order.issue || "").trim()) sk[0].issue = order.issue;
     setDetForm({
       customer_name: order.customer_name || "", customer_phone: order.customer_phone || "",
@@ -115,7 +176,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
       const list = cleanSkis(detForm.skis || []);
       const s0 = list[0] || {};
       const issue = list.length > 1
-        ? list.map((s) => { const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ") || "Ski"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
+        ? list.map((s) => { const lbl = [s.type, s.year, s.make, s.model].filter(Boolean).join(" ") || "Unit"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
         : (s0.issue || "");
       patch = {
         customer_name: detForm.customer_name.trim(), customer_phone: detForm.customer_phone.trim(), issue,
@@ -197,12 +258,13 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
 
       {order.kind !== "maintenance" && skis.length > 0 && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 6 }}>Skis ({skis.length})</div>
+          <div style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 6 }}>Units ({skis.length})</div>
           <div style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${C.line}` }}>
             {skis.map((s, i) => (
               <div key={i} style={{ padding: "8px 12px", fontSize: 14, borderBottom: `1px solid ${C.line}`, fontFamily: BODY }}>
                 <Row style={{ flexWrap: "wrap", gap: 8 }}>
-                  <span style={{ fontWeight: 700, color: C.ink }}>{skiLabel(s) || `Ski ${i + 1}`}</span>
+                  {s.type && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal }}>{s.type}</span>}
+                  <span style={{ fontWeight: 700, color: C.ink }}>{skiLabel(s) || `Unit ${i + 1}`}</span>
                   <span style={{ flex: 1, color: C.slate }}>{[s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ")}</span>
                 </Row>
                 {skis.length > 1 && s.issue && <div style={{ color: C.slate, marginTop: 3, whiteSpace: "pre-wrap" }}>{s.issue}</div>}
@@ -227,7 +289,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
                 <div><Label>Phone</Label><TextInput value={detForm.customer_phone} onChange={(e) => setDetForm({ ...detForm, customer_phone: e.target.value })} /></div>
               </div>
               <div style={{ marginTop: 10 }}>
-                <Label>Skis</Label>
+                <Label>Units</Label>
                 <SkiEditor skis={detForm.skis || []} onChange={(skis) => setDetForm({ ...detForm, skis })} />
               </div>
             </>
@@ -240,13 +302,14 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
       ) : (
         <button onClick={openDetails} style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Edit details</button>
       ))}
-      {canDelete && !editingDetails && (
-        <button onClick={() => setShowInvoice(true)} style={{ marginTop: 10, marginLeft: 12, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Create quote / invoice</button>
-      )}
       {!editingDetails && (
         <button onClick={() => setShowInspection(true)} style={{ marginTop: 10, marginLeft: 12, fontSize: 13, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Drop-off / pick-up inspection</button>
       )}
-      {showInvoice && <Invoice order={order} parts={parts} hours={hours} shopRate={shopRate} onClose={() => setShowInvoice(false)} />}
+
+      {canDelete && !editingDetails && (
+        <QuotesPanel quotes={quotes} skis={skis} isMaint={order.kind === "maintenance"} onOpen={setOpenQuoteId} onNew={createQuote} onDelete={deleteQuote} />
+      )}
+      {openQuoteId && <Invoice quoteId={openQuoteId} order={order} parts={parts} hours={hours} shopRate={shopRate} onClose={() => { setOpenQuoteId(null); loadQuotes(); }} />}
       {showInspection && <Inspection order={order} canEdit={canDelete} onClose={() => setShowInspection(false)} />}
 
       {/* tabs */}

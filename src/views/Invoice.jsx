@@ -10,17 +10,18 @@ const cellInp = { fontFamily: BODY, fontSize: 13, color: "#111", border: "none",
 const boxInp = { fontFamily: BODY, fontSize: 13, color: "#111", border: "none", background: "#fff", padding: "3px 8px", width: "100%", boxSizing: "border-box", textAlign: "right" };
 const bar = { background: DARK, color: "#fff", fontSize: 12, fontWeight: 600, padding: "3px 8px", fontFamily: BODY };
 
-export default function Invoice({ order, parts = [], hours = [], shopRate = 0, onClose }) {
+export default function Invoice({ order, parts = [], hours = [], shopRate = 0, onClose, quoteId }) {
   const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
     ? o.skis
     : (o && (o.year || o.make || o.model || o.hull_id || o.registration)
-        ? [{ year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
+        ? [{ type: o.type || "", year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
         : []);
-  const skis = skisOf(order);
+  const allSkis = skisOf(order);
   const totalHrs = round2(hours.reduce((a, h) => a + Number(h.hours), 0));
-  const taken = parts.filter((p) => p.kind === "taken");
 
   const [lines, setLines] = useState([]);
+  const [unitId, setUnitId] = useState("");
+  const [title, setTitle] = useState("");
   const [m, setM] = useState({
     number: "", date: new Date().toLocaleDateString(), terms: "", customerNum: "", rep: "",
     taxRate: "7.45", discount: "0", shipping: "0", amountPaid: "0", notes: "",
@@ -30,42 +31,50 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("invoices").select("data").eq("order_id", order.id).maybeSingle();
+      const { data } = await supabase.from("invoices").select("data, unit_id, title").eq("id", quoteId).maybeSingle();
       const inv = data?.data;
+      const uId = data?.unit_id || "";
+      setUnitId(uId);
+      setTitle(data?.title || "");
       if (inv && Array.isArray(inv.lines)) {
-        // Restore the exact invoice as it was left.
+        // Restore the exact quote as it was left.
         if (inv.m && typeof inv.m === "object") setM((prev) => ({ ...prev, ...inv.m }));
         setLines(inv.lines);
       } else {
-        // First time — build the lines from the parts taken + labor.
+        // First time — build the lines from this unit's parts taken + a labor line.
+        const takenAll = parts.filter((p) => p.kind === "taken");
+        const taken = uId ? takenAll.filter((p) => p.ski_id === uId) : takenAll;
         const init = taken.map((p) => ({
           desc: [p.sku, p.name].filter(Boolean).join(" — ") || p.name || "",
           qty: String(p.qty || "1"),
           rate: p.price != null ? String(p.price) : "",
           tax: true,
         }));
-        init.push({ desc: "Labor", qty: String(totalHrs || ""), rate: shopRate ? String(shopRate) : "", tax: false });
+        init.push({ desc: "Labor", qty: uId ? "" : String(totalHrs || ""), rate: shopRate ? String(shopRate) : "", tax: false });
         setLines(init);
       }
       loaded.current = true;
     })();
-  }, [order.id]);
+  }, [quoteId]);
 
-  // Autosave whatever is on the invoice so it's all there next time it's opened.
+  // Autosave whatever is on the quote so it's all there next time it's opened.
   useEffect(() => {
     if (!loaded.current) return;
     setSaved("Saving…");
     const t = setTimeout(async () => {
       const { error } = await supabase.from("invoices").upsert(
-        { order_id: order.id, data: { m, lines }, updated_at: new Date().toISOString() },
-        { onConflict: "order_id" }
+        { id: quoteId, order_id: order.id, data: { m, lines }, title, updated_at: new Date().toISOString() },
+        { onConflict: "id" }
       );
       setSaved(error ? "Couldn't save" : "Saved ✓");
     }, 600);
     return () => clearTimeout(t);
-  }, [m, lines]);
+  }, [m, lines, title]);
+
+  // A per-unit quote bills only that unit; a full-order quote lists them all.
+  const skis = unitId ? allSkis.filter((s) => s.id === unitId) : allSkis;
   const skiLines = skis.map((s) => {
-    const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ");
+    const lbl = [s.type, s.year, s.make, s.model].filter(Boolean).join(" ");
     const ids = [s.hull_id && `HIN ${s.hull_id}`, s.registration && `Reg ${s.registration}`].filter(Boolean).join(" · ");
     return [lbl, ids].filter(Boolean).join(" — ");
   }).filter(Boolean);
@@ -102,9 +111,10 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
         .inv-notes { break-inside: avoid; page-break-inside: avoid; }
       }`}</style>
       <div className="inv-wrap" style={{ maxWidth: 820, margin: "0 auto" }}>
-        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
           <button onClick={() => window.print()} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "#fff", color: C.ink, fontWeight: 700, fontFamily: BODY, fontSize: 14, padding: "10px 16px", borderRadius: 8 }}>Close</button>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Quote name (e.g. GTX 170)" style={{ fontFamily: BODY, fontSize: 14, padding: "9px 12px", borderRadius: 8, border: "none", minWidth: 200 }} />
           {saved && <span style={{ alignSelf: "center", fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: BODY, opacity: 0.9 }}>{saved}</span>}
         </div>
 

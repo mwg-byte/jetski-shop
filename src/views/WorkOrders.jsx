@@ -27,27 +27,51 @@ export function WorkOrderList({
   const setTechFilter = setTechFilterProp ?? setTechFilterLocal;
   const search = searchProp ?? searchLocal;
   const setSearch = setSearchProp ?? setSearchLocal;
-  const q = search.trim().toLowerCase();
+  const q = search.trim();
+  const searching = q.length > 0;
 
+  // Everything you might search by, from the order AND every unit on it.
+  const haystackOf = (o) => {
+    const units = Array.isArray(o.skis) ? o.skis : [];
+    const bits = [o.customer_name, o.customer_phone, o.year, o.make, o.model, o.hull_id, o.registration, o.issue];
+    units.forEach((u) => bits.push(u.type, u.year, u.make, u.model, u.hull_id, u.registration, u.issue));
+    return bits.filter(Boolean).join(" ").toLowerCase();
+  };
+  // Match every whitespace-separated term. A term hits if it appears as typed OR
+  // with all spaces/punctuation stripped — so "AB-1234 CD" finds "AB1234CD".
+  const textMatch = (o) => {
+    if (!searching) return true;
+    const hay = haystackOf(o);
+    const hayCompact = hay.replace(/[^a-z0-9]/g, "");
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every((term) => {
+      const compact = term.replace(/[^a-z0-9]/g, "");
+      return hay.includes(term) || (compact && hayCompact.includes(compact));
+    });
+  };
   const matches = (o) =>
-    (techFilter === "all" || (assignees[o.id] || []).includes(techFilter)) &&
-    (!q || [o.customer_name, o.make, o.model, o.hull_id, o.issue].join(" ").toLowerCase().includes(q));
+    (techFilter === "all" || (assignees[o.id] || []).includes(techFilter)) && textMatch(o);
   const countFor = (g) => orders.filter((o) => g.statuses.includes(o.status) && matches(o)).length;
 
   const group = GROUPS.find((g) => g.key === tab) || GROUPS[0];
+  // While searching, look across EVERY status (active, ready, completed…), not just the open tab.
   const visible = orders
     .map((o, i) => ({ o, rank: i }))
-    .filter(({ o }) => group.statuses.includes(o.status) && matches(o));
+    .filter(({ o }) => matches(o) && (searching || group.statuses.includes(o.status)));
 
   return (
     <>
-      <Row style={{ marginBottom: 12 }}>
-        <TextInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer, ski, hull, issue…" style={{ maxWidth: 280 }} />
+      <Row style={{ marginBottom: searching ? 6 : 12 }}>
+        <TextInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, phone, unit, HIN, reg, issue…" style={{ maxWidth: 320 }} />
         <Select value={techFilter} onChange={(e) => setTechFilter(e.target.value)} style={{ width: "auto" }}>
           <option value="all">Any tech</option>
           {crew.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
         </Select>
       </Row>
+      {searching && (
+        <div style={{ marginBottom: 12, fontSize: 12, fontFamily: BODY, color: C.slate }}>
+          Searching <b>all stages</b> — {visible.length} match{visible.length === 1 ? "" : "es"} for “{q}”. <button onClick={() => setSearch("")} style={{ color: C.teal, fontWeight: 700, fontFamily: BODY }}>clear</button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
         {GROUPS.map((g) => {
@@ -73,7 +97,9 @@ export function WorkOrderList({
         </Card>
       ) : visible.length === 0 ? (
         <Card style={{ textAlign: "center", padding: 32, borderStyle: "dashed" }}>
-          <div style={{ fontFamily: BODY, fontSize: 14, color: C.slate }}>Nothing in <b>{group.label}</b> right now.</div>
+          <div style={{ fontFamily: BODY, fontSize: 14, color: C.slate }}>
+            {searching ? <>No work orders match “{q}” in any stage.</> : <>Nothing in <b>{group.label}</b> right now.</>}
+          </div>
         </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -101,7 +127,7 @@ export function WorkOrderList({
                       {o.kind === "maintenance" ? (
                         <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 999, background: "#A162071A", color: "#A16207", marginLeft: 8 }}>Maintenance</span>
                       ) : (
-                        <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}{Array.isArray(o.skis) && o.skis.length > 1 ? ` +${o.skis.length - 1} more` : ""}</span>
+                        <span style={{ fontFamily: DISPLAY, fontSize: 16, color: C.slate, marginLeft: 8 }}>{[o.skis?.[0]?.type, o.year, o.make, o.model].filter(Boolean).join(" ")}{Array.isArray(o.skis) && o.skis.length > 1 ? ` +${o.skis.length - 1} more` : ""}</span>
                       )}
                       <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2 }}>{o.issue}</div>
                     </div>
@@ -138,10 +164,13 @@ export function WorkOrderList({
 }
 
 export const rid = () => "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-export const blankSki = () => ({ id: rid(), year: "", make: "", model: "", hull_id: "", registration: "", issue: "" });
+export const blankSki = () => ({ id: rid(), type: "", year: "", make: "", model: "", hull_id: "", registration: "", issue: "" });
 export const cleanSkis = (arr) => arr
-  .map((s) => ({ id: s.id || rid(), year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim(), issue: (s.issue || "").trim() }))
-  .filter((s) => s.year || s.make || s.model || s.hull_id || s.registration || s.issue);
+  .map((s) => ({ id: s.id || rid(), type: (s.type || "").trim(), year: (s.year || "").trim(), make: (s.make || "").trim(), model: (s.model || "").trim(), hull_id: (s.hull_id || "").trim(), registration: (s.registration || "").trim(), issue: (s.issue || "").trim() }))
+  .filter((s) => s.type || s.year || s.make || s.model || s.hull_id || s.registration || s.issue);
+
+// Common unit types, offered as autocomplete suggestions (free text — type anything).
+export const UNIT_TYPES = ["Jet Ski", "Boat", "E-Bike", "ATV", "UTV / Side-by-Side", "Snowmobile", "Trailer", "Other"];
 
 export function SkiEditor({ skis, onChange }) {
   const setSki = (i, k, v) => onChange(skis.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
@@ -149,13 +178,17 @@ export function SkiEditor({ skis, onChange }) {
   const removeSki = (i) => onChange(skis.filter((_, idx) => idx !== i));
   return (
     <>
+      <datalist id="unit-type-options">
+        {UNIT_TYPES.map((t) => <option key={t} value={t} />)}
+      </datalist>
       {skis.map((s, i) => (
         <div key={i} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, marginTop: 8, background: "#fff" }}>
           <Row style={{ justifyContent: "space-between", marginBottom: 8 }}>
-            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>Ski {i + 1}</span>
+            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>Unit {i + 1}</span>
             {skis.length > 1 && <button onClick={() => removeSki(i)} style={{ fontSize: 12, fontWeight: 600, color: C.red, fontFamily: BODY }}>remove</button>}
           </Row>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            <div><Label>Type</Label><TextInput list="unit-type-options" value={s.type || ""} onChange={(e) => setSki(i, "type", e.target.value)} placeholder="Jet Ski, Boat, E-Bike…" /></div>
             <div><Label>Make</Label><TextInput value={s.make} onChange={(e) => setSki(i, "make", e.target.value)} placeholder="Sea-Doo" /></div>
             <div><Label>Model</Label><TextInput value={s.model} onChange={(e) => setSki(i, "model", e.target.value)} placeholder="GTX 170" /></div>
             <div><Label>Year</Label><TextInput value={s.year} onChange={(e) => setSki(i, "year", e.target.value)} /></div>
@@ -164,11 +197,11 @@ export function SkiEditor({ skis, onChange }) {
           </div>
           <div style={{ marginTop: 10 }}>
             <Label>Issue / work needed</Label>
-            <textarea value={s.issue || ""} onChange={(e) => setSki(i, "issue", e.target.value)} rows={2} placeholder="What's wrong / what to do on this ski" style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD", boxSizing: "border-box" }} />
+            <textarea value={s.issue || ""} onChange={(e) => setSki(i, "issue", e.target.value)} rows={2} placeholder="What's wrong / what to do on this unit" style={{ width: "100%", fontFamily: BODY, fontSize: 14, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 12px", background: "#FBFCFD", boxSizing: "border-box" }} />
           </div>
         </div>
       ))}
-      <button onClick={addSki} style={{ marginTop: 8, fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 6, background: C.paleTeal, color: C.teal }}>+ Add ski</button>
+      <button onClick={addSki} style={{ marginTop: 8, fontFamily: BODY, fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 6, background: C.paleTeal, color: C.teal }}>+ Add unit</button>
     </>
   );
 }
@@ -183,7 +216,7 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
     const list = cleanSkis(skis);
     const s0 = list[0] || {};
     const issue = list.length > 1
-      ? list.map((s) => { const lbl = [s.year, s.make, s.model].filter(Boolean).join(" ") || "Ski"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
+      ? list.map((s) => { const lbl = [s.type, s.year, s.make, s.model].filter(Boolean).join(" ") || "Unit"; return s.issue ? `${lbl}: ${s.issue}` : null; }).filter(Boolean).join("\n")
       : (s0.issue || "");
     const { data, error } = await supabase.from("work_orders").insert({
       customer_name: f.customer_name, customer_phone: f.customer_phone, issue, priority: nextPriority,
@@ -201,7 +234,7 @@ export function NewOrderForm({ onDone, onCancel, nextPriority }) {
         <div><Label>Phone</Label><TextInput value={f.customer_phone} onChange={set("customer_phone")} /></div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <Label>Skis</Label>
+        <Label>Units</Label>
         <SkiEditor skis={skis} onChange={setSkis} />
       </div>
       {err && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 8 }}>{err}</div>}
