@@ -14,6 +14,13 @@ const skisOf = (o) => (Array.isArray(o?.skis) && o.skis.length)
       ? [{ type: o.type || "", year: o.year || "", make: o.make || "", model: o.model || "", hull_id: o.hull_id || "", registration: o.registration || "" }]
       : []);
 const skiLabel = (s) => [s.year, s.make, s.model].filter(Boolean).join(" ");
+// Leads with the registration (then HIN) so two of the same make/model can be told apart.
+const skiPickLabel = (s, i) => {
+  const name = [s.year, s.make, s.model].filter(Boolean).join(" ");
+  const reg = s.registration ? `Reg ${s.registration}` : (s.hull_id ? `HIN ${s.hull_id}` : "");
+  if (reg && name) return `${reg} — ${name}`;
+  return reg || name || `Unit ${(i ?? 0) + 1}`;
+};
 const unitLabel = (s) => [s.type, s.year, s.make, s.model].filter(Boolean).join(" ");
 const quoteTotal = (d) => {
   const lines = Array.isArray(d?.lines) ? d.lines : [];
@@ -485,12 +492,12 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const taken = parts.filter((p) => p.kind === "taken");
   const orderSkis = order.kind !== "maintenance" && Array.isArray(order.skis) ? order.skis : [];
   const multiSki = orderSkis.length > 1;
-  const skiName = (id) => { if (!id) return null; const s = orderSkis.find((k) => (k.id || "") === id); return s ? (skiLabel(s) || "Ski") : null; };
+  const skiName = (id) => { if (!id) return null; const i = orderSkis.findIndex((k) => (k.id || "") === id); return i >= 0 ? skiPickLabel(orderSkis[i], i) : null; };
   const skiChip = (id) => { const nm = skiName(id); return nm ? <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal, fontFamily: BODY }}>{nm}</span> : null; };
   const SkiPick = ({ value, onChange }) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "auto", minWidth: 120 }}>
       <option value="">All / general</option>
-      {orderSkis.map((s, i) => <option key={s.id || i} value={s.id || ""}>{skiLabel(s) || `Ski ${i + 1}`}</option>)}
+      {orderSkis.map((s, i) => <option key={s.id || i} value={s.id || ""}>{skiPickLabel(s, i)}</option>)}
     </Select>
   );
 
