@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
-import { C, DISPLAY, BODY, today, stageOf } from "../lib/supabase";
-import { Card, Row, SectionTitle } from "../lib/ui";
+import { useState, useMemo, useEffect } from "react";
+import { supabase, C, DISPLAY, BODY, today, stageOf } from "../lib/supabase";
+import { Card, Row, SectionTitle, TextInput, StatusChip } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
 const dateOnly = (v) => (v ? String(v).slice(0, 10) : "");
@@ -34,14 +34,27 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
   const [anchor, setAnchor] = useState(() => new Date());
   const [scope, setScope] = useState("mine"); // "mine" | "all"
 
+  // local copy so the grid updates the moment a date is set
+  const [items, setItems] = useState(orders);
+  useEffect(() => { setItems(orders); }, [orders]);
+
+  async function schedule(id, date) {
+    setItems((list) => list.map((o) => (o.id === id ? { ...o, scheduled_date: date } : o)));
+    await supabase.from("work_orders").update({ scheduled_date: date }).eq("id", id);
+  }
+
   // jobs with a scheduled date that aren't closed
   const scheduled = useMemo(
-    () => orders.filter((o) => o.scheduled_date && o.status !== "closed"),
-    [orders]
+    () => items.filter((o) => o.scheduled_date && o.status !== "closed"),
+    [items]
   );
   const mineOnly = useMemo(
     () => scheduled.filter((o) => (assignees[o.id] || []).includes(profile.id)),
     [scheduled, assignees, profile.id]
+  );
+  const unscheduled = useMemo(
+    () => items.filter((o) => !o.scheduled_date && o.status !== "closed"),
+    [items]
   );
   const shown = scope === "mine" ? mineOnly : scheduled;
 
@@ -142,6 +155,37 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
       <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 12 }}>
         Colors follow each job's status. <span style={{ color: "#A16207", fontWeight: 700 }}>Amber</span> = maintenance task. Tap a job to open it.
       </div>
+
+      {/* add jobs to the calendar (managers) */}
+      {mgr && (
+        <div style={{ marginTop: 20, borderTop: `1px solid ${C.line}`, paddingTop: 16 }}>
+          <SectionTitle>Add jobs to the calendar{unscheduled.length ? ` · ${unscheduled.length} unscheduled` : ""}</SectionTitle>
+          <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 4 }}>
+            Pick a date to drop an open job onto the calendar. It shows up on the grid right away and on the assigned crew member's phone feed.
+          </p>
+          {unscheduled.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY, padding: "12px 0" }}>Every open job has a date. Nice.</div>
+          ) : (
+            <div style={{ borderRadius: 8, border: `1px solid ${C.line}`, overflow: "hidden", marginTop: 8 }}>
+              {unscheduled.map((o) => (
+                <Row key={o.id} style={{ justifyContent: "space-between", padding: "8px 12px", borderTop: `1px solid ${C.line}`, gap: 8, flexWrap: "wrap" }}>
+                  <button onClick={() => onOpen(o.id)} style={{ textAlign: "left", fontFamily: BODY }}>
+                    <div style={{ fontFamily: DISPLAY, fontSize: 17, fontWeight: 700, color: C.ink }}>
+                      {o.customer_name}
+                      {o.kind === "maintenance" && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 999, background: "#A162071A", color: "#A16207", marginLeft: 8 }}>Maintenance</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.slate }}>{skiText(o) || o.issue || "—"}</div>
+                  </button>
+                  <Row style={{ gap: 10 }}>
+                    <StatusChip status={o.status} />
+                    <TextInput type="date" value="" onChange={(e) => e.target.value && schedule(o.id, e.target.value)} style={{ width: "auto", padding: "6px 8px" }} />
+                  </Row>
+                </Row>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* subscribe on your phone */}
       <div style={{ marginTop: 20, borderTop: `1px solid ${C.line}`, paddingTop: 16 }}>

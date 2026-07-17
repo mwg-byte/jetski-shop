@@ -10,6 +10,9 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
   const [to, setTo] = useState("");
   const [body, setBody] = useState("");
   const [sent, setSent] = useState("");
+  const [replyTo, setReplyTo] = useState(null); // message id currently being replied to
+  const [replyText, setReplyText] = useState("");
+  const [replyErr, setReplyErr] = useState("");
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "Someone";
 
@@ -18,14 +21,38 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
     setMsgs(data || []);
   }
   async function loadSent() {
-    if (!mgr) return;
+    // loaded for everyone (not just managers) so replies can thread under messages
     const { data } = await supabase.from("dashboard_messages").select("*").eq("sender_id", profile.id).order("created_at", { ascending: false });
     setSentMsgs(data || []);
   }
   useEffect(() => { loadMsgs(); loadSent(); }, []);
 
-  const unreadCount = msgs.filter((m) => !m.read).length;
+  // replies keyed by the message they answer (merge everything I can see, dedup)
+  const repliesByParent = (() => {
+    const map = {}; const seen = new Set();
+    [...msgs, ...sentMsgs].forEach((m) => {
+      if (!m.parent_id || seen.has(m.id)) return;
+      seen.add(m.id);
+      (map[m.parent_id] = map[m.parent_id] || []).push(m);
+    });
+    Object.values(map).forEach((a) => a.sort((x, y) => String(x.created_at).localeCompare(String(y.created_at))));
+    return map;
+  })();
+
+  const inboxTop = msgs.filter((m) => !m.parent_id);       // top-level messages sent to me
+  const unreadCount = msgs.filter((m) => !m.read).length;   // includes replies to me
   useEffect(() => { onUnread?.(unreadCount); }, [unreadCount]);
+
+  async function sendReply(parent) {
+    if (!replyText.trim()) return;
+    setReplyErr("");
+    const { error } = await supabase.from("dashboard_messages").insert({
+      recipient_id: parent.sender_id, sender_id: profile.id, body: replyText.trim(), parent_id: parent.id,
+    });
+    if (error) { setReplyErr("Couldn't send reply — try again."); return; }
+    setReplyText(""); setReplyTo(null);
+    loadMsgs(); loadSent();
+  }
 
   const myOrders = orders.filter((o) => (assignees[o.id] || []).includes(profile.id) && o.status !== "closed");
 
@@ -144,19 +171,46 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
             <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>You haven't sent any messages yet.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {sentBatches.map((b) => (
-                <div key={b.key} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: "#fff" }}>
-                  <Row style={{ justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>To: {recipLabel(b)}</span>
-                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(b.created_at)}</span>
-                  </Row>
-                  <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap" }}>{b.body}</div>
-                  <Row style={{ gap: 12 }}>
-                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>Read by {b.readCount}/{b.ids.length}</span>
-                    <button onClick={() => removeBatch(b)} style={{ fontSize: 12, color: C.red, fontFamily: BODY }}>delete</button>
-                  </Row>
-                </div>
-              ))}
+              {sentBatches.map((b) => {
+                const batchReplies = b.ids.flatMap((id) => repliesByParent[id] || [])
+                  .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)));
+                const unreadReplies = batchReplies.filter((r) => !r.read && r.recipient_id === profile.id).length;
+                return (
+                  <div key={b.key} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: "#fff" }}>
+                    <Row style={{ justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>To: {recipLabel(b)}</span>
+                      <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(b.created_at)}</span>
+                    </Row>
+                    <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap" }}>{b.body}</div>
+
+                    {batchReplies.length > 0 && (
+                      <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 10, marginBottom: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {batchReplies.map((r) => (
+                          <div key={r.id} style={{ background: !r.read && r.recipient_id === profile.id ? "#FFFDF7" : "transparent", borderRadius: 4, padding: !r.read && r.recipient_id === profile.id ? "4px 6px" : 0 }}>
+                            <Row style={{ justifyContent: "space-between" }}>
+                              <Row style={{ gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: BODY }}>{r.sender_id === profile.id ? "You" : nameOf(r.sender_id)} replied</span>
+                                {!r.read && r.recipient_id === profile.id && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 6px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
+                              </Row>
+                              <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY }}>{fmtDate(r.created_at)}</span>
+                            </Row>
+                            <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, whiteSpace: "pre-wrap" }}>{r.body}</div>
+                            {!r.read && r.recipient_id === profile.id && (
+                              <button onClick={() => setRead(r, true)} style={{ fontSize: 11, fontWeight: 600, color: C.teal, fontFamily: BODY, marginTop: 2 }}>Mark read</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <Row style={{ gap: 12 }}>
+                      <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>Read by {b.readCount}/{b.ids.length}</span>
+                      {batchReplies.length > 0 && <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{batchReplies.length} repl{batchReplies.length === 1 ? "y" : "ies"}{unreadReplies ? ` · ${unreadReplies} new` : ""}</span>}
+                      <button onClick={() => removeBatch(b)} style={{ fontSize: 12, color: C.red, fontFamily: BODY }}>delete</button>
+                    </Row>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>
@@ -166,29 +220,60 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
         <SectionTitle right={unreadCount > 0 ? <button onClick={markAllRead} style={{ fontFamily: BODY, fontSize: 12, fontWeight: 600, color: C.teal }}>Mark all read</button> : null}>
           Messages{unreadCount > 0 ? ` · ${unreadCount} unread` : ""}
         </SectionTitle>
-        {msgs.length === 0 ? (
+        {inboxTop.length === 0 ? (
           <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No messages right now.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {msgs.map((m) => (
-              <div key={m.id} style={{
-                border: `1px solid ${C.line}`, borderLeft: `4px solid ${m.read ? "#D6DEE3" : C.orange}`,
-                borderRadius: 6, padding: "10px 12px", background: m.read ? "#fff" : "#FFFDF7", opacity: m.read ? 0.7 : 1,
-              }}>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <Row style={{ gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{nameOf(m.sender_id)}</span>
-                    {!m.read && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 7px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
+            {inboxTop.map((m) => {
+              const thread = repliesByParent[m.id] || [];
+              return (
+                <div key={m.id} style={{
+                  border: `1px solid ${C.line}`, borderLeft: `4px solid ${m.read ? "#D6DEE3" : C.orange}`,
+                  borderRadius: 6, padding: "10px 12px", background: m.read ? "#fff" : "#FFFDF7", opacity: m.read ? 0.7 : 1,
+                }}>
+                  <Row style={{ justifyContent: "space-between" }}>
+                    <Row style={{ gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{nameOf(m.sender_id)}</span>
+                      {!m.read && <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 7px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
+                    </Row>
+                    <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(m.created_at)}</span>
                   </Row>
-                  <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{fmtDate(m.created_at)}</span>
-                </Row>
-                <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap", fontWeight: m.read ? 400 : 600 }}>{m.body}</div>
-                <Row style={{ gap: 12 }}>
-                  <button onClick={() => setRead(m, !m.read)} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>{m.read ? "Mark unread" : "Mark read"}</button>
-                  <button onClick={() => remove(m)} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>remove</button>
-                </Row>
-              </div>
-            ))}
+                  <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap", fontWeight: m.read ? 400 : 600 }}>{m.body}</div>
+
+                  {thread.length > 0 && (
+                    <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 10, marginBottom: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {thread.map((r) => (
+                        <div key={r.id}>
+                          <Row style={{ justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: BODY }}>{r.sender_id === profile.id ? "You" : nameOf(r.sender_id)}</span>
+                            <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY }}>{fmtDate(r.created_at)}</span>
+                          </Row>
+                          <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, whiteSpace: "pre-wrap" }}>{r.body}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {replyTo === m.id ? (
+                    <div style={{ marginTop: 4 }}>
+                      <TextInput placeholder="Write a reply…" value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") sendReply(m); }} style={{ width: "100%" }} autoFocus />
+                      <Row style={{ gap: 10, marginTop: 6 }}>
+                        <button onClick={() => sendReply(m)} disabled={!replyText.trim()} style={{ ...btn(C.teal), opacity: replyText.trim() ? 1 : 0.4 }}>Send reply</button>
+                        <button onClick={() => { setReplyTo(null); setReplyText(""); setReplyErr(""); }} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>cancel</button>
+                      </Row>
+                      {replyErr && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 4 }}>{replyErr}</div>}
+                    </div>
+                  ) : (
+                    <Row style={{ gap: 12 }}>
+                      <button onClick={() => { setReplyTo(m.id); setReplyText(""); }} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Reply</button>
+                      <button onClick={() => setRead(m, !m.read)} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>{m.read ? "Mark unread" : "Mark read"}</button>
+                      <button onClick={() => remove(m)} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>remove</button>
+                    </Row>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>
