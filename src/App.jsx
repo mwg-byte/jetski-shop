@@ -19,6 +19,7 @@ import Inventory from "./views/Inventory";
 import Stock from "./views/Stock";
 import MaintenanceTab from "./views/MaintenanceTab";
 import Pipeline from "./views/Pipeline";
+import Calendar from "./views/Calendar";
 import Settings from "./views/Settings";
 
 export default function App() {
@@ -76,6 +77,7 @@ export default function App() {
   const navItems = [
     { key: "home", label: "Home", show: true },
     { key: "list", label: "Work orders", show: true },
+    { key: "calendar", label: "Calendar", show: true },
     { key: "planner", label: "Planner", show: mgr },
     { key: "maintenance", label: "Maintenance", show: canMaint },
     { key: "timeclock", label: "Time clock", show: true },
@@ -170,6 +172,9 @@ export default function App() {
           <Stock onBack={() => setView({ name: "list" })} />
         ) : view.name === "inventory" ? (
           <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "calendar" ? (
+          <Calendar orders={orders} assignees={assignees} mgr={mgr}
+            onOpen={(id) => setView({ name: "detail", id })} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "planner" ? (
           <Pipeline orders={orders} crew={crew}
             onOpen={(id) => setView({ name: "detail", id })} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
