@@ -133,8 +133,10 @@ export default function Payroll({ crew, settings, onBack }) {
       otHrs += Math.max(0, wkHrs - otThreshold);
     }
     const rate = rates[t.id] || 0;
-    const miles = round2(trips.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.miles), 0));
-    const expense = round2(expenses.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.amount), 0));
+    // Reimbursements roll over: count ALL unpaid mileage + purchases (any date),
+    // not just this pay period, so they keep adding up until marked paid.
+    const miles = round2(pendingTrips.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.miles), 0));
+    const expense = round2(pending.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.amount), 0));
     const regPay = regHrs * rate;
     const otPay = otHrs * rate * otMult;
     const mileagePay = miles * mileageRate;
@@ -169,7 +171,7 @@ export default function Payroll({ crew, settings, onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Payroll</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Pay is built from clocked shift hours plus mileage and receipt reimbursement. Overtime is anything past {otThreshold} hrs in a week at {otMult}×.
+        Pay is built from clocked shift hours plus mileage and receipt reimbursement. Overtime is anything past {otThreshold} hrs in a week at {otMult}×. Hours are for the selected period; the <strong>Mileage</strong> and <strong>Receipts</strong> columns show every <strong>unpaid</strong> reimbursement (all dates) and keep rolling forward until you mark them paid below.
       </p>
 
       <Row style={{ marginTop: 16, alignItems: "flex-end" }}>
