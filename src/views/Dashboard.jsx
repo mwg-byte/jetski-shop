@@ -3,7 +3,7 @@ import { supabase, C, DISPLAY, BODY, fmtDate, today } from "../lib/supabase";
 import { Card, Row, TextInput, Select, SectionTitle, StatusChip, btn } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
-export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread, onOpen }) {
+export default function Dashboard({ crew, orders, assignees = {}, mgr, settings, onUnread, onOpen }) {
   const { profile } = useAuth();
   const [msgs, setMsgs] = useState([]);
   const [sentMsgs, setSentMsgs] = useState([]);
@@ -55,6 +55,9 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
   }
 
   const myOrders = orders.filter((o) => (assignees[o.id] || []).includes(profile.id) && o.status !== "closed");
+
+  const isInvoicer = !!settings?.invoicer_id && settings.invoicer_id === profile.id;
+  const readyForInvoice = orders.filter((o) => o.status === "ready_for_invoice");
 
   const todayStr = today();
   const dOf = (o) => (o.scheduled_date ? String(o.scheduled_date).slice(0, 10) : "");
@@ -127,6 +130,30 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, onUnread,
         </h2>
         <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>Your messages and what you're assigned to.</p>
       </Card>
+
+      {isInvoicer && (
+        <Card style={{ marginTop: 12 }}>
+          <SectionTitle>Ready for invoice{readyForInvoice.length ? ` · ${readyForInvoice.length}` : ""}</SectionTitle>
+          {readyForInvoice.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing waiting to be invoiced right now.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {readyForInvoice.map((o) => (
+                <button key={o.id} onClick={() => onOpen(o.id)} style={{ textAlign: "left", border: `1px solid ${C.line}`, borderLeft: `4px solid #2563EB`, borderRadius: 6, padding: 12, background: C.card }}>
+                  <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <div>
+                      <span style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink }}>{o.customer_name}</span>
+                      <span style={{ fontFamily: DISPLAY, fontSize: 14, color: C.slate, marginLeft: 8 }}>{[o.year, o.make, o.model].filter(Boolean).join(" ")}</span>
+                      {o.issue && <div style={{ fontSize: 13, color: C.slate, fontFamily: BODY, marginTop: 2 }}>{o.issue}</div>}
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#2563EB", fontFamily: BODY, whiteSpace: "nowrap" }}>Open →</span>
+                  </Row>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card style={{ marginTop: 12 }}>
         <SectionTitle>Today's schedule{todays.length ? ` · ${todays.length}` : ""}</SectionTitle>

@@ -140,7 +140,7 @@ export default function App() {
 
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "16px" }}>
         {view.name === "home" ? (
-          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} onUnread={setUnread} onOpen={(id) => setView({ name: "detail", id })} />
+          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} settings={settings} onUnread={setUnread} onOpen={(id) => setView({ name: "detail", id })} />
         ) : view.name === "new" ? (
           <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
@@ -184,7 +184,7 @@ export default function App() {
         ) : view.name === "crew" ? (
           <Crew onCrewChange={loadCrew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "settings" ? (
-          <Settings settings={settings} onSaved={setSettings} onBack={() => setView({ name: "list" })} />
+          <Settings settings={settings} crew={crew} onSaved={setSettings} onBack={() => setView({ name: "list" })} />
         ) : (
           <WorkOrderList orders={orders} crew={crew} liveCounts={liveCounts} assignees={assignees} canCreate={mgr}
             onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onNew={() => setView({ name: "new" })}

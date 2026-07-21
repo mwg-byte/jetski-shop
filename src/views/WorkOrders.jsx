@@ -2,10 +2,11 @@ import { useState } from "react";
 import { supabase, C, DISPLAY, BODY, fmtDate, REPAIR_STATUSES } from "../lib/supabase";
 import { Card, Row, TextInput, Select, Label, SectionTitle, StatusChip, btn, LiveDot } from "../lib/ui";
 
-const ACTIVE_STATUSES = ["intake", "diagnosing", "awaiting_deposit", "awaiting_parts", "in_repair", "testing"];
+const ACTIVE_STATUSES = ["intake", "diagnosing", "ready_for_invoice", "awaiting_deposit", "awaiting_parts", "in_repair", "testing"];
 const GROUPS = [
   { key: "active", label: "Active", statuses: ACTIVE_STATUSES },
   { key: "intake", label: "Intake", statuses: ["intake", "diagnosing"] },
+  { key: "invoice", label: "Ready for Invoice", statuses: ["ready_for_invoice"] },
   { key: "deposit", label: "Awaiting Deposit", statuses: ["awaiting_deposit"] },
   { key: "awaiting", label: "Awaiting Parts", statuses: ["awaiting_parts"] },
   { key: "repair", label: "In Repair", statuses: ["in_repair", "testing"] },

@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { supabase, C, DISPLAY, BODY } from "../lib/supabase";
-import { Card, Row, TextInput, Label, SectionTitle, btn } from "../lib/ui";
+import { Card, Row, TextInput, Select, Label, SectionTitle, btn } from "../lib/ui";
 
-export default function Settings({ settings, onSaved, onBack }) {
+export default function Settings({ settings, crew = [], onSaved, onBack }) {
   const [f, setF] = useState({
     mileage_rate: settings?.mileage_rate ?? 0.7,
     ot_weekly_threshold: settings?.ot_weekly_threshold ?? 40,
     ot_multiplier: settings?.ot_multiplier ?? 1.5,
     shop_rate: settings?.shop_rate ?? 0,
+    invoicer_id: settings?.invoicer_id ?? "",
   });
   const [msg, setMsg] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -19,6 +20,7 @@ export default function Settings({ settings, onSaved, onBack }) {
       ot_weekly_threshold: Number(f.ot_weekly_threshold) || 40,
       ot_multiplier: Number(f.ot_multiplier) || 1.5,
       shop_rate: Number(f.shop_rate) || 0,
+      invoicer_id: f.invoicer_id || null,
     };
     const { error } = await supabase.from("settings").update(payload).eq("id", 1);
     if (error) setMsg(error.message);
@@ -43,6 +45,18 @@ export default function Settings({ settings, onSaved, onBack }) {
       </div>
       <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
         Default hourly rate used to price labor on a work order. Each order can override it.
+      </div>
+
+      <SectionTitle>Invoicing</SectionTitle>
+      <div style={{ maxWidth: 260 }}>
+        <Label>Ready-for-invoice orders go to</Label>
+        <Select value={f.invoicer_id} onChange={set("invoicer_id")}>
+          <option value="">— Nobody (list hidden) —</option>
+          {crew.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+        </Select>
+      </div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
+        When anyone moves a work order to “Ready for Invoice,” it shows up in this person’s Ready-for-invoice list on their home dashboard, and they get a message.
       </div>
 
       <SectionTitle>Overtime</SectionTitle>

@@ -164,6 +164,16 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
     }
     setOrder({ ...order, ...full });
     await supabase.from("work_orders").update(full).eq("id", orderId);
+
+    // Notify the invoicer when a job first becomes ready to invoice.
+    if ("status" in patch && patch.status === "ready_for_invoice" && order.status !== "ready_for_invoice"
+        && settings?.invoicer_id && settings.invoicer_id !== profile.id) {
+      const ski = [order.year, order.make, order.model].filter(Boolean).join(" ");
+      await supabase.from("dashboard_messages").insert({
+        recipient_id: settings.invoicer_id, sender_id: profile.id,
+        body: `Ready for invoice: ${order.customer_name}${ski ? " — " + ski : ""}. It's in your Ready-for-invoice list.`,
+      });
+    }
   };
   function openDetails() {
     const sk = skisOf(order).map((s) => ({ id: s.id, type: s.type || "", year: s.year || "", make: s.make || "", model: s.model || "", hull_id: s.hull_id || "", registration: s.registration || "", issue: s.issue || "" }));
