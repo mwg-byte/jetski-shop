@@ -9,7 +9,7 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
     ot_multiplier: settings?.ot_multiplier ?? 1.5,
     shop_rate: settings?.shop_rate ?? 0,
     invoicer_id: settings?.invoicer_id ?? "",
-    notes_watcher_id: settings?.notes_watcher_id ?? "",
+    notes_watcher_ids: settings?.notes_watcher_ids ?? (settings?.notes_watcher_id ? [settings.notes_watcher_id] : []),
   });
   const [msg, setMsg] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -22,7 +22,7 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
       ot_multiplier: Number(f.ot_multiplier) || 1.5,
       shop_rate: Number(f.shop_rate) || 0,
       invoicer_id: f.invoicer_id || null,
-      notes_watcher_id: f.notes_watcher_id || null,
+      notes_watcher_ids: f.notes_watcher_ids || [],
     };
     const { error } = await supabase.from("settings").update(payload).eq("id", 1);
     if (error) setMsg(error.message);
@@ -62,15 +62,21 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
       </div>
 
       <SectionTitle>Work-order updates</SectionTitle>
-      <div style={{ maxWidth: 260 }}>
-        <Label>Notes feed goes to</Label>
-        <Select value={f.notes_watcher_id} onChange={set("notes_watcher_id")}>
-          <option value="">— Nobody (feed hidden) —</option>
-          {crew.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
-        </Select>
+      <Label>Notes feed goes to</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+        {crew.map((c) => {
+          const on = f.notes_watcher_ids.includes(c.id);
+          return (
+            <button key={c.id} type="button"
+              onClick={() => setF({ ...f, notes_watcher_ids: on ? f.notes_watcher_ids.filter((id) => id !== c.id) : [...f.notes_watcher_ids, c.id] })}
+              style={{ fontFamily: BODY, fontSize: 14, fontWeight: 600, padding: "6px 14px", borderRadius: 999, background: on ? C.teal : C.paleTeal, color: on ? "#fff" : C.teal }}>
+              {on ? "✓ " : ""}{c.display_name}
+            </button>
+          );
+        })}
       </div>
       <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
-        This person gets a live “Work order updates” feed on their home dashboard — every note added to any work order, tagged with the job and linked, so they can follow progress without opening each order.
+        Everyone selected gets a live “Work order updates” feed on their home dashboard — every note added to any work order, tagged with the job and linked, so they can follow progress without opening each order. Tap a name to add or remove them.
       </div>
 
       <SectionTitle>Overtime</SectionTitle>

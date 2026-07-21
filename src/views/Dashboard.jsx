@@ -60,7 +60,7 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
   const isInvoicer = !!settings?.invoicer_id && settings.invoicer_id === profile.id;
   const readyForInvoice = orders.filter((o) => o.status === "ready_for_invoice");
 
-  const isWatcher = !!settings?.notes_watcher_id && settings.notes_watcher_id === profile.id;
+  const isWatcher = (settings?.notes_watcher_ids || []).includes(profile.id) || settings?.notes_watcher_id === profile.id;
   useEffect(() => {
     if (!isWatcher) return;
     supabase.from("order_notes").select("*").order("created_at", { ascending: false }).limit(50)
