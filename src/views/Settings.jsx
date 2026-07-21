@@ -9,6 +9,7 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
     ot_multiplier: settings?.ot_multiplier ?? 1.5,
     shop_rate: settings?.shop_rate ?? 0,
     invoicer_id: settings?.invoicer_id ?? "",
+    notes_watcher_id: settings?.notes_watcher_id ?? "",
   });
   const [msg, setMsg] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -21,6 +22,7 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
       ot_multiplier: Number(f.ot_multiplier) || 1.5,
       shop_rate: Number(f.shop_rate) || 0,
       invoicer_id: f.invoicer_id || null,
+      notes_watcher_id: f.notes_watcher_id || null,
     };
     const { error } = await supabase.from("settings").update(payload).eq("id", 1);
     if (error) setMsg(error.message);
@@ -57,6 +59,18 @@ export default function Settings({ settings, crew = [], onSaved, onBack }) {
       </div>
       <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
         When anyone moves a work order to “Ready for Invoice,” it shows up in this person’s Ready-for-invoice list on their home dashboard, and they get a message.
+      </div>
+
+      <SectionTitle>Work-order updates</SectionTitle>
+      <div style={{ maxWidth: 260 }}>
+        <Label>Notes feed goes to</Label>
+        <Select value={f.notes_watcher_id} onChange={set("notes_watcher_id")}>
+          <option value="">— Nobody (feed hidden) —</option>
+          {crew.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+        </Select>
+      </div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 6, maxWidth: 420 }}>
+        This person gets a live “Work order updates” feed on their home dashboard — every note added to any work order, tagged with the job and linked, so they can follow progress without opening each order.
       </div>
 
       <SectionTitle>Overtime</SectionTitle>

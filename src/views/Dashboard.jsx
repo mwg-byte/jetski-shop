@@ -13,6 +13,7 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
   const [replyTo, setReplyTo] = useState(null); // message id currently being replied to
   const [replyText, setReplyText] = useState("");
   const [replyErr, setReplyErr] = useState("");
+  const [orderNotes, setOrderNotes] = useState([]);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "Someone";
 
@@ -58,6 +59,18 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
 
   const isInvoicer = !!settings?.invoicer_id && settings.invoicer_id === profile.id;
   const readyForInvoice = orders.filter((o) => o.status === "ready_for_invoice");
+
+  const isWatcher = !!settings?.notes_watcher_id && settings.notes_watcher_id === profile.id;
+  useEffect(() => {
+    if (!isWatcher) return;
+    supabase.from("order_notes").select("*").order("created_at", { ascending: false }).limit(50)
+      .then(({ data }) => setOrderNotes(data || []));
+  }, [isWatcher]);
+  const orderById = {};
+  orders.forEach((o) => { orderById[o.id] = o; });
+  const notesFeed = orderNotes
+    .map((n) => ({ ...n, order: orderById[n.order_id] }))
+    .filter((n) => n.order && n.order.status !== "closed");
 
   const todayStr = today();
   const dOf = (o) => (o.scheduled_date ? String(o.scheduled_date).slice(0, 10) : "");
@@ -148,6 +161,33 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
                     </div>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "#2563EB", fontFamily: BODY, whiteSpace: "nowrap" }}>Open →</span>
                   </Row>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {isWatcher && (
+        <Card style={{ marginTop: 12 }}>
+          <SectionTitle>Work order updates{notesFeed.length ? ` · ${notesFeed.length}` : ""}</SectionTitle>
+          <p style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginTop: 2, marginBottom: 8 }}>
+            The latest notes added to active work orders. Tap one to open the job.
+          </p>
+          {notesFeed.length === 0 ? (
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No notes yet on active work orders.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {notesFeed.map((n) => (
+                <button key={n.id} onClick={() => onOpen(n.order_id)} style={{ textAlign: "left", border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: C.card }}>
+                  <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.teal + "1A", color: C.teal, fontFamily: BODY }}>
+                      {n.order.customer_name}{[n.order.year, n.order.make, n.order.model].filter(Boolean).length ? ` · ${[n.order.year, n.order.make, n.order.model].filter(Boolean).join(" ")}` : ""}
+                    </span>
+                    <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY, whiteSpace: "nowrap" }}>{fmtDate(n.created_at)}</span>
+                  </Row>
+                  <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-wrap" }}>{n.body}</div>
+                  <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 2 }}>— {nameOf(n.author_id)}</div>
                 </button>
               ))}
             </div>
