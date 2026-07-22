@@ -54,7 +54,7 @@ export default function Payroll({ crew, settings, onBack }) {
       supabase.from("expenses").select("*").gte("expense_date", start).lt("expense_date", end),
     ]).then(([s, t, r, x]) => {
       setShifts(s.data || []); setTrips(t.data || []); setExpenses(x.data || []);
-      const map = {}; (r.data || []).forEach((y) => { map[y.tech_id] = y.hourly_rate; });
+      const map = {}; (r.data || []).forEach((y) => { map[y.tech_id] = { rate: Number(y.hourly_rate) || 0, pay_type: y.pay_type || "hourly", salary: Number(y.salary) || 0 }; });
       setRates(map); setLoading(false);
     });
   }, [start, periodLen]);
@@ -132,16 +132,20 @@ export default function Payroll({ crew, settings, onBack }) {
       regHrs += reg;
       otHrs += Math.max(0, wkHrs - otThreshold);
     }
-    const rate = rates[t.id] || 0;
+    const info = rates[t.id] || { rate: 0, pay_type: "hourly", salary: 0 };
+    const rate = info.rate;
+    const salaried = info.pay_type === "salary";
     // Reimbursements roll over: count ALL unpaid mileage + purchases (any date),
     // not just this pay period, so they keep adding up until marked paid.
     const miles = round2(pendingTrips.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.miles), 0));
     const expense = round2(pending.filter((x) => x.tech_id === t.id).reduce((a, x) => a + Number(x.amount), 0));
-    const regPay = regHrs * rate;
-    const otPay = otHrs * rate * otMult;
+    // Salaried: pay a fixed share of the annual salary for this period (no OT).
+    // Hourly: reg + OT from clocked hours.
+    const regPay = salaried ? round2((info.salary / 52) * (periodLen / 7)) : regHrs * rate;
+    const otPay = salaried ? 0 : otHrs * rate * otMult;
     const mileagePay = miles * mileageRate;
     return {
-      id: t.id, name: t.display_name, rate,
+      id: t.id, name: t.display_name, rate, salaried, salary: info.salary,
       regHrs: round2(regHrs), otHrs: round2(otHrs), miles, expense,
       regPay: round2(regPay), otPay: round2(otPay), mileagePay: round2(mileagePay),
       gross: round2(regPay + otPay + mileagePay + expense),
@@ -155,7 +159,7 @@ export default function Payroll({ crew, settings, onBack }) {
 
   function exportCsv() {
     const head = ["Employee", "Reg hrs", "OT hrs", "Rate", "Reg pay", "OT pay", "Miles", "Mileage pay", "Receipts", "Gross"];
-    const lines = rows.map((r) => [r.name, r.regHrs, r.otHrs, r.rate, r.regPay, r.otPay, r.miles, r.mileagePay, r.expense, r.gross].join(","));
+    const lines = rows.map((r) => [r.name, r.regHrs, r.otHrs, r.salaried ? "salary" : r.rate, r.regPay, r.otPay, r.miles, r.mileagePay, r.expense, r.gross].join(","));
     const csv = [`Pay period,${start} to ${addDays(end, -1)}`, "", head.join(","), ...lines].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a");
@@ -208,7 +212,7 @@ export default function Payroll({ crew, settings, onBack }) {
                   <td style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: C.ink }}>{r.name}</td>
                   <td style={{ padding: "8px 10px" }}>{r.regHrs}</td>
                   <td style={{ padding: "8px 10px", color: r.otHrs > 0 ? C.orange : C.slate }}>{r.otHrs}</td>
-                  <td style={{ padding: "8px 10px", color: r.rate ? C.ink : C.red }}>{r.rate ? money(r.rate) : "set rate"}</td>
+                  <td style={{ padding: "8px 10px", color: r.salaried ? C.ink : (r.rate ? C.ink : C.red) }}>{r.salaried ? "Salary" : (r.rate ? money(r.rate) : "set rate")}</td>
                   <td style={{ padding: "8px 10px" }}>{money(r.regPay)}</td>
                   <td style={{ padding: "8px 10px" }}>{money(r.otPay)}</td>
                   <td style={{ padding: "8px 10px" }}>{r.miles}</td>

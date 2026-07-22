@@ -14,6 +14,7 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
   const [replyText, setReplyText] = useState("");
   const [replyErr, setReplyErr] = useState("");
   const [orderNotes, setOrderNotes] = useState([]);
+  const [ackedIds, setAckedIds] = useState([]);
 
   const nameOf = (id) => crew.find((c) => c.id === id)?.display_name || "Someone";
 
@@ -44,16 +45,53 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
   const unreadCount = msgs.filter((m) => !m.read).length;   // includes replies to me
   useEffect(() => { onUnread?.(unreadCount); }, [unreadCount]);
 
-  async function sendReply(parent) {
+  // Post a reply into a thread. parentId = the root message row; recipientId =
+  // the other person in the conversation (so both sides can keep replying).
+  async function postReply(parentId, recipientId) {
     if (!replyText.trim()) return;
     setReplyErr("");
     const { error } = await supabase.from("dashboard_messages").insert({
-      recipient_id: parent.sender_id, sender_id: profile.id, body: replyText.trim(), parent_id: parent.id,
+      recipient_id: recipientId, sender_id: profile.id, body: replyText.trim(), parent_id: parentId,
     });
     if (error) { setReplyErr("Couldn't send reply — try again."); return; }
     setReplyText(""); setReplyTo(null);
     loadMsgs(); loadSent();
   }
+
+  // one reply bubble; shows a Mark-read control when it's addressed to me
+  const replyBubble = (r) => {
+    const toMeUnread = !r.read && r.recipient_id === profile.id;
+    return (
+      <div key={r.id} style={{ background: toMeUnread ? "#FFFDF7" : "transparent", borderRadius: 4, padding: toMeUnread ? "4px 6px" : 0 }}>
+        <Row style={{ justifyContent: "space-between" }}>
+          <Row style={{ gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: BODY }}>{r.sender_id === profile.id ? "You" : nameOf(r.sender_id)}</span>
+            {toMeUnread && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 6px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
+          </Row>
+          <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY }}>{fmtDate(r.created_at)}</span>
+        </Row>
+        <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, whiteSpace: "pre-wrap" }}>{r.body}</div>
+        {toMeUnread && <button onClick={() => setRead(r, true)} style={{ fontSize: 11, fontWeight: 600, color: C.teal, fontFamily: BODY, marginTop: 2 }}>Mark read</button>}
+      </div>
+    );
+  };
+
+  // reply composer for a thread; toggles open on the parent row being replied to
+  const threadComposer = (parentId, recipientId) => (
+    replyTo === parentId ? (
+      <div style={{ marginTop: 4 }}>
+        <TextInput placeholder="Write a reply…" value={replyText} onChange={(e) => setReplyText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") postReply(parentId, recipientId); }} style={{ width: "100%" }} autoFocus />
+        <Row style={{ gap: 10, marginTop: 6 }}>
+          <button onClick={() => postReply(parentId, recipientId)} disabled={!replyText.trim()} style={{ ...btn(C.teal), opacity: replyText.trim() ? 1 : 0.4 }}>Send reply</button>
+          <button onClick={() => { setReplyTo(null); setReplyText(""); setReplyErr(""); }} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>cancel</button>
+        </Row>
+        {replyErr && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 4 }}>{replyErr}</div>}
+      </div>
+    ) : (
+      <button onClick={() => { setReplyTo(parentId); setReplyText(""); }} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Reply</button>
+    )
+  );
 
   const myOrders = orders.filter((o) => (assignees[o.id] || []).includes(profile.id) && o.status !== "closed");
 
@@ -63,14 +101,24 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
   const isWatcher = (settings?.notes_watcher_ids || []).includes(profile.id) || settings?.notes_watcher_id === profile.id;
   useEffect(() => {
     if (!isWatcher) return;
-    supabase.from("order_notes").select("*").order("created_at", { ascending: false }).limit(50)
-      .then(({ data }) => setOrderNotes(data || []));
+    Promise.all([
+      supabase.from("order_notes").select("*").order("created_at", { ascending: false }).limit(100),
+      supabase.from("note_acks").select("note_id").eq("user_id", profile.id),
+    ]).then(([n, a]) => {
+      setOrderNotes(n.data || []);
+      setAckedIds((a.data || []).map((x) => x.note_id));
+    });
   }, [isWatcher]);
   const orderById = {};
   orders.forEach((o) => { orderById[o.id] = o; });
   const notesFeed = orderNotes
     .map((n) => ({ ...n, order: orderById[n.order_id] }))
-    .filter((n) => n.order && n.order.status !== "closed");
+    .filter((n) => n.order && n.order.status !== "closed" && !ackedIds.includes(n.id));
+
+  async function acknowledgeNote(id) {
+    setAckedIds((cur) => [...cur, id]);
+    await supabase.from("note_acks").insert({ note_id: id, user_id: profile.id });
+  }
 
   const todayStr = today();
   const dOf = (o) => (o.scheduled_date ? String(o.scheduled_date).slice(0, 10) : "");
@@ -175,20 +223,25 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
             The latest notes added to active work orders. Tap one to open the job.
           </p>
           {notesFeed.length === 0 ? (
-            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>No notes yet on active work orders.</div>
+            <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>You're all caught up — no new notes on active work orders.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {notesFeed.map((n) => (
-                <button key={n.id} onClick={() => onOpen(n.order_id)} style={{ textAlign: "left", border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: C.card }}>
-                  <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.teal + "1A", color: C.teal, fontFamily: BODY }}>
-                      {n.order.customer_name}{[n.order.year, n.order.make, n.order.model].filter(Boolean).length ? ` · ${[n.order.year, n.order.make, n.order.model].filter(Boolean).join(" ")}` : ""}
-                    </span>
-                    <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY, whiteSpace: "nowrap" }}>{fmtDate(n.created_at)}</span>
+                <div key={n.id} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: C.card }}>
+                  <button onClick={() => onOpen(n.order_id)} style={{ textAlign: "left", width: "100%", fontFamily: BODY }}>
+                    <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.teal + "1A", color: C.teal, fontFamily: BODY }}>
+                        {n.order.customer_name}{[n.order.year, n.order.make, n.order.model].filter(Boolean).length ? ` · ${[n.order.year, n.order.make, n.order.model].filter(Boolean).join(" ")}` : ""}
+                      </span>
+                      <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY, whiteSpace: "nowrap" }}>{fmtDate(n.created_at)}</span>
+                    </Row>
+                    <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-wrap" }}>{n.body}</div>
+                    <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 2 }}>— {nameOf(n.author_id)}</div>
+                  </button>
+                  <Row style={{ justifyContent: "flex-end", marginTop: 6 }}>
+                    <button onClick={() => acknowledgeNote(n.id)} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: C.teal, borderRadius: 6, padding: "5px 12px", fontFamily: BODY }}>✓ Acknowledge</button>
                   </Row>
-                  <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, whiteSpace: "pre-wrap" }}>{n.body}</div>
-                  <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 2 }}>— {nameOf(n.author_id)}</div>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -239,9 +292,9 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {sentBatches.map((b) => {
-                const batchReplies = b.ids.flatMap((id) => repliesByParent[id] || [])
-                  .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)));
-                const unreadReplies = batchReplies.filter((r) => !r.read && r.recipient_id === profile.id).length;
+                const convos = b.ids.map((id, i) => ({ id, recipient: b.recipients[i], thread: repliesByParent[id] || [] }))
+                  .filter((c) => c.thread.length);
+                const totalReplies = convos.reduce((a, c) => a + c.thread.length, 0);
                 return (
                   <div key={b.key} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "10px 12px", background: "#fff" }}>
                     <Row style={{ justifyContent: "space-between" }}>
@@ -250,29 +303,17 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
                     </Row>
                     <div style={{ fontSize: 14, color: C.ink, fontFamily: BODY, marginTop: 4, marginBottom: 6, whiteSpace: "pre-wrap" }}>{b.body}</div>
 
-                    {batchReplies.length > 0 && (
-                      <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 10, marginBottom: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-                        {batchReplies.map((r) => (
-                          <div key={r.id} style={{ background: !r.read && r.recipient_id === profile.id ? "#FFFDF7" : "transparent", borderRadius: 4, padding: !r.read && r.recipient_id === profile.id ? "4px 6px" : 0 }}>
-                            <Row style={{ justifyContent: "space-between" }}>
-                              <Row style={{ gap: 6 }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: BODY }}>{r.sender_id === profile.id ? "You" : nameOf(r.sender_id)} replied</span>
-                                {!r.read && r.recipient_id === profile.id && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "1px 6px", borderRadius: 999, background: C.orange, color: "#fff" }}>New</span>}
-                              </Row>
-                              <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY }}>{fmtDate(r.created_at)}</span>
-                            </Row>
-                            <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, whiteSpace: "pre-wrap" }}>{r.body}</div>
-                            {!r.read && r.recipient_id === profile.id && (
-                              <button onClick={() => setRead(r, true)} style={{ fontSize: 11, fontWeight: 600, color: C.teal, fontFamily: BODY, marginTop: 2 }}>Mark read</button>
-                            )}
-                          </div>
-                        ))}
+                    {convos.map((c) => (
+                      <div key={c.id} style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 10, marginBottom: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {b.ids.length > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, fontFamily: BODY }}>With {nameOf(c.recipient)}</span>}
+                        {c.thread.map((r) => replyBubble(r))}
+                        {threadComposer(c.id, c.recipient)}
                       </div>
-                    )}
+                    ))}
 
                     <Row style={{ gap: 12 }}>
                       <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>Read by {b.readCount}/{b.ids.length}</span>
-                      {batchReplies.length > 0 && <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{batchReplies.length} repl{batchReplies.length === 1 ? "y" : "ies"}{unreadReplies ? ` · ${unreadReplies} new` : ""}</span>}
+                      {totalReplies > 0 && <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{totalReplies} repl{totalReplies === 1 ? "y" : "ies"}</span>}
                       <button onClick={() => removeBatch(b)} style={{ fontSize: 12, color: C.red, fontFamily: BODY }}>delete</button>
                     </Row>
                   </div>
@@ -309,31 +350,15 @@ export default function Dashboard({ crew, orders, assignees = {}, mgr, settings,
 
                   {thread.length > 0 && (
                     <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 10, marginBottom: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {thread.map((r) => (
-                        <div key={r.id}>
-                          <Row style={{ justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: BODY }}>{r.sender_id === profile.id ? "You" : nameOf(r.sender_id)}</span>
-                            <span style={{ fontSize: 11, color: C.slate, fontFamily: BODY }}>{fmtDate(r.created_at)}</span>
-                          </Row>
-                          <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, whiteSpace: "pre-wrap" }}>{r.body}</div>
-                        </div>
-                      ))}
+                      {thread.map((r) => replyBubble(r))}
                     </div>
                   )}
 
                   {replyTo === m.id ? (
-                    <div style={{ marginTop: 4 }}>
-                      <TextInput placeholder="Write a reply…" value={replyText} onChange={(e) => setReplyText(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") sendReply(m); }} style={{ width: "100%" }} autoFocus />
-                      <Row style={{ gap: 10, marginTop: 6 }}>
-                        <button onClick={() => sendReply(m)} disabled={!replyText.trim()} style={{ ...btn(C.teal), opacity: replyText.trim() ? 1 : 0.4 }}>Send reply</button>
-                        <button onClick={() => { setReplyTo(null); setReplyText(""); setReplyErr(""); }} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>cancel</button>
-                      </Row>
-                      {replyErr && <div style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 4 }}>{replyErr}</div>}
-                    </div>
+                    threadComposer(m.id, m.sender_id)
                   ) : (
                     <Row style={{ gap: 12 }}>
-                      <button onClick={() => { setReplyTo(m.id); setReplyText(""); }} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>Reply</button>
+                      {threadComposer(m.id, m.sender_id)}
                       <button onClick={() => setRead(m, !m.read)} style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>{m.read ? "Mark unread" : "Mark read"}</button>
                       <button onClick={() => remove(m)} style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>remove</button>
                     </Row>

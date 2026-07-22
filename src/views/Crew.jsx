@@ -10,7 +10,7 @@ export default function Crew({ onBack, onCrewChange }) {
   const { profile } = useAuth();
   const isOwner = profile.role === "owner";
   const [people, setPeople] = useState([]);
-  const [rates, setRates] = useState({}); // tech_id -> hourly_rate
+  const [pay, setPay] = useState({}); // tech_id -> { pay_type, hourly_rate, salary }
   const [msg, setMsg] = useState("");
 
   async function load() {
@@ -20,8 +20,8 @@ export default function Crew({ onBack, onCrewChange }) {
     ]);
     setPeople(profs || []);
     const map = {};
-    (payRates || []).forEach((r) => { map[r.tech_id] = r.hourly_rate; });
-    setRates(map);
+    (payRates || []).forEach((r) => { map[r.tech_id] = { pay_type: r.pay_type || "hourly", hourly_rate: r.hourly_rate ?? 0, salary: r.salary ?? 0 }; });
+    setPay(map);
   }
   useEffect(() => { load(); }, []);
 
@@ -35,10 +35,16 @@ export default function Crew({ onBack, onCrewChange }) {
     if (error) return setMsg(error.message);
     await load();
   }
-  async function setRate(p, hourly_rate) {
-    const rate = Number(hourly_rate) || 0;
-    setRates({ ...rates, [p.id]: rate });
-    await supabase.from("pay_rates").upsert({ tech_id: p.id, hourly_rate: rate });
+  async function savePay(p, patch) {
+    const cur = pay[p.id] || { pay_type: "hourly", hourly_rate: 0, salary: 0 };
+    const next = { ...cur, ...patch };
+    setPay({ ...pay, [p.id]: next });
+    await supabase.from("pay_rates").upsert({
+      tech_id: p.id,
+      pay_type: next.pay_type || "hourly",
+      hourly_rate: Number(next.hourly_rate) || 0,
+      salary: Number(next.salary) || 0,
+    });
   }
 
   const pending = people.filter((p) => !p.active);
@@ -83,14 +89,36 @@ export default function Crew({ onBack, onCrewChange }) {
               )}
             </Row>
             <Row style={{ marginTop: 10, gap: 16 }}>
-              {isManager(profile.role) && (
-                <div>
-                  <Label>Pay rate ($/hr)</Label>
-                  <TextInput type="number" step="0.5" min="0" value={rates[p.id] ?? ""} placeholder="0.00"
-                    onChange={(e) => setRates({ ...rates, [p.id]: e.target.value })}
-                    onBlur={(e) => setRate(p, e.target.value)} style={{ width: 110 }} />
-                </div>
-              )}
+              {isManager(profile.role) && (() => {
+                const pp = pay[p.id] || { pay_type: "hourly", hourly_rate: "", salary: "" };
+                const setLocal = (patch) => setPay({ ...pay, [p.id]: { ...pp, ...patch } });
+                return (
+                  <>
+                    <div>
+                      <Label>Pay type</Label>
+                      <Select value={pp.pay_type} onChange={(e) => savePay(p, { pay_type: e.target.value })} style={{ width: 120 }}>
+                        <option value="hourly">Hourly</option>
+                        <option value="salary">Salary</option>
+                      </Select>
+                    </div>
+                    {pp.pay_type === "salary" ? (
+                      <div>
+                        <Label>Annual salary ($)</Label>
+                        <TextInput type="number" step="100" min="0" value={pp.salary ?? ""} placeholder="0"
+                          onChange={(e) => setLocal({ salary: e.target.value })}
+                          onBlur={(e) => savePay(p, { salary: e.target.value })} style={{ width: 130 }} />
+                      </div>
+                    ) : (
+                      <div>
+                        <Label>Pay rate ($/hr)</Label>
+                        <TextInput type="number" step="0.5" min="0" value={pp.hourly_rate ?? ""} placeholder="0.00"
+                          onChange={(e) => setLocal({ hourly_rate: e.target.value })}
+                          onBlur={(e) => savePay(p, { hourly_rate: e.target.value })} style={{ width: 110 }} />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               {isOwner && p.id !== profile.id && (
                 <div>
                   <Label>Role</Label>
