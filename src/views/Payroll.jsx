@@ -107,11 +107,19 @@ export default function Payroll({ crew, settings, onBack }) {
 
   async function markPaid(x) {
     setPending((cur) => cur.filter((p) => p.id !== x.id));
-    await supabase.from("expenses").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", x.id);
+    const { error } = await supabase.from("expenses").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", x.id);
+    if (error) {
+      setPending((cur) => (cur.some((p) => p.id === x.id) ? cur : [...cur, x]));
+      alert("Couldn't mark that reimbursement paid: " + error.message);
+    }
   }
   async function markPaidTrip(t) {
     setPendingTrips((cur) => cur.filter((p) => p.id !== t.id));
-    await supabase.from("trips").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", t.id);
+    const { error } = await supabase.from("trips").update({ reimbursed: true, reimbursed_at: new Date().toISOString(), reimbursed_by: profile.id }).eq("id", t.id);
+    if (error) {
+      setPendingTrips((cur) => (cur.some((p) => p.id === t.id) ? cur : [...cur, t]));
+      alert("Couldn't mark that mileage paid: " + error.message);
+    }
   }
   const tripAmt = (t) => round2(Number(t.miles) * mileageRate);
   const pendingTotal = round2(pending.reduce((a, x) => a + Number(x.amount), 0) + pendingTrips.reduce((a, t) => a + tripAmt(t), 0));
