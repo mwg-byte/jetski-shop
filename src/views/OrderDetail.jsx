@@ -331,7 +331,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: `2px solid ${C.line}` }}>
-        {(order.kind === "maintenance" ? [{ key: "job", label: "Job" }] : [{ key: "job", label: "Job" }, { key: "lake", label: `Lake testing${lakeTests.length ? ` (${lakeTests.length})` : ""}` }]).map((t) => (
+        {(order.kind === "maintenance" ? [{ key: "job", label: "Job" }, { key: "todo", label: "Tech to do" }] : [{ key: "job", label: "Job" }, { key: "todo", label: "Tech to do" }, { key: "lake", label: `Lake testing${lakeTests.length ? ` (${lakeTests.length})` : ""}` }]).map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
             padding: "8px 14px", borderRadius: "6px 6px 0 0",
@@ -342,12 +342,71 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
         ))}
       </div>
 
-      {tab === "job" || order.kind === "maintenance" ? (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete, shopRate, shopRateGlobal }} />
-      ) : (
+      {tab === "todo" ? (
+        <TodoTab {...{ quotes, setQuotes, profile }} />
+      ) : tab === "lake" && order.kind !== "maintenance" ? (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
+      ) : (
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete, shopRate, shopRateGlobal }} />
       )}
     </Card>
+  );
+}
+
+/* ================= TECH TO DO TAB ================= */
+/* Jobs are pulled straight from the invoice line items; each can be checked off. */
+function TodoTab({ quotes, setQuotes, profile }) {
+  const jobs = [];
+  quotes.forEach((q) => {
+    const lines = Array.isArray(q.data?.lines) ? q.data.lines : [];
+    lines.forEach((l, idx) => {
+      if ((l.desc || "").trim()) jobs.push({ quoteId: q.id, quoteTitle: q.title || "Invoice", idx, desc: l.desc, qty: l.qty, done: !!l.done });
+    });
+  });
+  const doneCount = jobs.filter((j) => j.done).length;
+
+  async function toggle(job) {
+    const q = quotes.find((x) => x.id === job.quoteId);
+    if (!q) return;
+    const lines = (q.data?.lines || []).map((l, i) => (i === job.idx
+      ? { ...l, done: !l.done, done_by: !l.done ? profile.id : null, done_at: !l.done ? new Date().toISOString() : null }
+      : l));
+    const newData = { ...(q.data || {}), lines };
+    setQuotes((qs) => qs.map((x) => (x.id === q.id ? { ...x, data: newData } : x)));
+    await supabase.from("invoices").update({ data: newData }).eq("id", q.id);
+  }
+
+  if (quotes.length === 0) {
+    return <div style={{ marginTop: 16, fontSize: 14, color: C.slate, fontFamily: BODY }}>No invoice yet. Create a quote/invoice for this order and its line items will show up here as jobs to check off.</div>;
+  }
+  if (jobs.length === 0) {
+    return <div style={{ marginTop: 16, fontSize: 14, color: C.slate, fontFamily: BODY }}>The invoice has no line items yet. Add descriptions on the invoice and they'll appear here.</div>;
+  }
+
+  const byQuote = {};
+  jobs.forEach((j) => { (byQuote[j.quoteId] = byQuote[j.quoteId] || { title: j.quoteTitle, items: [] }).items.push(j); });
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>Tech to do</div>
+        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: BODY, color: doneCount === jobs.length ? C.green : C.slate }}>{doneCount} / {jobs.length} done</div>
+      </div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginBottom: 10 }}>Pulled from the invoice line items. Check each off as it's completed.</div>
+      {Object.entries(byQuote).map(([qid, grp]) => (
+        <div key={qid} style={{ marginBottom: 14 }}>
+          {quotes.length > 1 && <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: C.slate, fontFamily: BODY, marginBottom: 4 }}>{grp.title}</div>}
+          {grp.items.map((j) => (
+            <label key={j.quoteId + "-" + j.idx} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={j.done} onChange={() => toggle(j)} style={{ marginTop: 3, width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ flex: 1, fontFamily: BODY, fontSize: 14, color: j.done ? C.slate : C.ink, textDecoration: j.done ? "line-through" : "none" }}>
+                {j.desc}{Number(j.qty) > 1 ? <span style={{ color: C.slate }}> × {j.qty}</span> : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
