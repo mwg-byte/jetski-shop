@@ -347,7 +347,7 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
       ) : tab === "lake" && order.kind !== "maintenance" ? (
         <LakeTab {...{ orderId, crew, profile, lakeTests, setLakeTests, lakeSession, setLakeSession }} />
       ) : (
-        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete, shopRate, shopRateGlobal }} />
+        <JobTab {...{ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr: canDelete, shopRate, shopRateGlobal, quotes }} />
       )}
     </Card>
   );
@@ -411,7 +411,7 @@ function TodoTab({ quotes, setQuotes, profile }) {
 }
 
 /* ================= JOB TAB ================= */
-function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr, shopRate, shopRateGlobal }) {
+function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, parts, setParts, notes, setNotes, media, setMedia, patchOrder, totalHrs, orderId, assignees, setAssignees, rates, isMgr, shopRate, shopRateGlobal, quotes = [] }) {
   const [hourForm, setHourForm] = useState({ tech_id: profile.id, work_date: today(), hours: "", note: "", ski_id: "" });
   const [partForm, setPartForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
   const [takenForm, setTakenForm] = useState({ name: "", qty: "1", sku: "", note: "", ski_id: "", cost: "" });
