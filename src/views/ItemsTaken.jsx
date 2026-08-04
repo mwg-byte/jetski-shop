@@ -44,7 +44,7 @@ export default function ItemsTaken({ crew, onBack }) {
     const consItems = (cons || []).map((c) => ({ source: "shop", id: c.id, created_at: c.created_at, name: c.name, qty: c.qty, note: c.note, taken_by: c.taken_by }));
     const partItems = (prt || []).map((p) => {
       const o = omap[p.order_id] || {};
-      return { source: "order", id: p.id, created_at: p.created_at, name: p.name, qty: p.qty, note: p.note, sku: p.sku, cost: p.cost, order_id: p.order_id, orderLabel: o.customer || "Work order", skiName: p.ski_id ? (o.skisById?.[p.ski_id] || "") : "" };
+      return { source: "order", id: p.id, created_at: p.created_at, name: p.name, qty: p.qty, note: p.note, sku: p.sku, cost: p.cost, price: p.price, order_id: p.order_id, orderLabel: o.customer || "Work order", skiName: p.ski_id ? (o.skisById?.[p.ski_id] || "") : "" };
     });
     const merged = [...consItems, ...partItems].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
     setLogs(merged);
@@ -64,6 +64,13 @@ export default function ItemsTaken({ crew, onBack }) {
     else await supabase.from("parts").delete().eq("id", it.id);
   }
   const canRemove = (it) => it.source === "shop" ? (it.taken_by === profile.id || isMgr) : isMgr;
+
+  // Managers can set the customer price on a taken part right here — saves straight to the part.
+  async function savePrice(it, val) {
+    const price = val === "" ? null : Number(val);
+    setLogs((ls) => ls.map((l) => (l.source === "order" && l.id === it.id ? { ...l, price } : l)));
+    await supabase.from("parts").update({ price }).eq("id", it.id);
+  }
 
   const wkStartMs = new Date(week + "T00:00:00").getTime();
   const wkEndMs = wkStartMs + 7 * DAY;
@@ -88,6 +95,14 @@ export default function ItemsTaken({ crew, onBack }) {
     <button onClick={() => setMode(key)} style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 16px", borderRadius: 999, background: mode === key ? C.ink : "#F1F4F6", color: mode === key ? "#fff" : C.slate }}>{label}</button>
   );
   const skiChip = (txt) => txt ? <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 8px", borderRadius: 999, background: C.paleTeal, color: C.teal }}>{txt}</span> : null;
+  const priceEditor = (it) => (isMgr && it.source === "order") ? (
+    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+      <span style={{ fontSize: 12, color: C.slate }}>Price</span>
+      <TextInput type="number" step="0.01" min="0" placeholder="0.00" value={it.price ?? ""}
+        onChange={(e) => setLogs((ls) => ls.map((l) => (l.source === "order" && l.id === it.id ? { ...l, price: e.target.value } : l)))}
+        onBlur={(e) => savePrice(it, e.target.value)} style={{ width: 84 }} />
+    </span>
+  ) : null;
 
   return (
     <Card>
@@ -137,6 +152,7 @@ export default function ItemsTaken({ crew, onBack }) {
                         {skiChip(it.skiName)}
                         <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
                         {isMgr && it.cost != null && <span style={{ fontWeight: 700, color: C.ink }}>{money(Number(it.cost) * Number(it.qty))}</span>}
+                        {priceEditor(it)}
                         {isMgr && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
                       </Row>
                     ))}
@@ -175,6 +191,7 @@ export default function ItemsTaken({ crew, onBack }) {
                   ) : (
                     <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
                   )}
+                  {priceEditor(it)}
                   {canRemove(it) && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
                 </Row>
               ))}
