@@ -3,10 +3,10 @@ import { supabase, C, DISPLAY, BODY, round2, fmtDate, today, isManager } from ".
 import { Card, Row, TextInput, Select, Label, SectionTitle, btn, btnSm } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
-/* Monday-start week containing `d` */
+/* Sunday-start week containing `d` (week runs Sun–Sat) */
 function weekStart(d) {
   const date = new Date(d + "T12:00:00");
-  const day = (date.getDay() + 6) % 7; // 0 = Monday
+  const day = date.getDay(); // 0 = Sunday
   date.setDate(date.getDate() - day);
   return date.toISOString().slice(0, 10);
 }
@@ -187,7 +187,7 @@ export default function Payroll({ crew, settings, onBack }) {
       </p>
 
       <Row style={{ marginTop: 16, alignItems: "flex-end" }}>
-        <div><Label>Period start (Mon)</Label><TextInput type="date" value={start} onChange={(e) => setStart(weekStart(e.target.value))} style={{ width: "auto" }} /></div>
+        <div><Label>Period start (Sun)</Label><TextInput type="date" value={start} onChange={(e) => setStart(weekStart(e.target.value))} style={{ width: "auto" }} /></div>
         <div>
           <Label>Length</Label>
           <Select value={periodLen} onChange={(e) => setPeriodLen(Number(e.target.value))} style={{ width: 140 }}>

@@ -424,7 +424,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   async function addTaken() {
     if (!takenForm.name.trim()) return;
-    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), ski_id: takenForm.ski_id || null, cost: takenForm.cost === "" ? null : Number(takenForm.cost), kind: "taken" }).select().single();
+    const { data } = await supabase.from("parts").insert({ order_id: orderId, name: takenForm.name.trim(), qty: Number(takenForm.qty) || 1, sku: takenForm.sku.trim(), note: takenForm.note.trim(), ski_id: takenForm.ski_id || null, cost: takenForm.cost === "" ? null : Number(takenForm.cost), kind: "taken", created_at: new Date().toISOString() }).select().single();
     if (data) { setParts([...parts, data]); setTakenForm({ name: "", qty: "1", sku: "", note: "", ski_id: takenForm.ski_id, cost: "" }); }
   }
   async function addNote() {
@@ -520,10 +520,25 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }).filter((r) => r.hrs > 0);
   const laborCost = round2(laborRows.reduce((a, r) => a + r.cost, 0));
   const totalCost = round2(partsCost + laborCost);
+  // Revenue is pulled straight from the invoices on this order: the sum of every quote/invoice total,
+  // computed the same way the invoice screen does (subtotal − discount + shipping + tax).
+  const invoiceTotal = (d) => {
+    const inv = d || {};
+    const ls = Array.isArray(inv.lines) ? inv.lines : [];
+    const mm = inv.m || {};
+    const amt = (l) => (Number(l.qty) || 0) * (Number(l.rate) || 0);
+    const sub = ls.reduce((a, l) => a + amt(l), 0);
+    const taxable = ls.filter((l) => l.tax).reduce((a, l) => a + amt(l), 0);
+    const tax = taxable * (Number(mm.taxRate) || 0) / 100;
+    return sub - (Number(mm.discount) || 0) + (Number(mm.shipping) || 0) + tax;
+  };
+  const invoicedTotal = round2(quotes.reduce((a, q) => a + invoiceTotal(q.data), 0));
   const repairTotalNum = Number(order.repair_total) || 0;
+  // Invoices drive revenue automatically; the typed "repair total" is only a fallback before any invoice exists.
+  const revenue = quotes.length ? invoicedTotal : repairTotalNum;
   const depositNum = Number(order.deposit_amount) || 0;
-  const profit = round2(repairTotalNum - totalCost);
-  const balanceDue = round2(repairTotalNum - depositNum);
+  const profit = round2(revenue - totalCost);
+  const balanceDue = round2(revenue - depositNum);
   const partsPriceCustomer = round2(taken.reduce((a, p) => a + (Number(p.price) || 0) * (Number(p.qty) || 1), 0));
   const laborCharge = round2((Number(shopRate) || 0) * (Number(totalHrs) || 0));
   const suggestedCharge = round2(partsPriceCustomer + laborCharge);
@@ -531,7 +546,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   const saveRepairTotal = () => patchOrder({ repair_total: repairTotal === "" ? 0 : Number(repairTotal) });
   const saveDeposit = () => patchOrder({ deposit_amount: deposit === "" ? 0 : Number(deposit) });
   async function requestPayment() {
-    const def = balanceDue > 0 ? balanceDue : repairTotalNum;
+    const def = balanceDue > 0 ? balanceDue : revenue;
     const input = window.prompt("Amount to charge the customer ($):", def ? String(def) : "");
     if (input == null) return;
     const amt = Number(input);
@@ -558,7 +573,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
   }
   function markPaidInFull() {
     if (!window.confirm("Mark this order paid in full?")) return;
-    patchOrder({ paid_in_full: true, paid_at: new Date().toISOString(), paid_amount: repairTotalNum });
+    patchOrder({ paid_in_full: true, paid_at: new Date().toISOString(), paid_amount: revenue });
   }
   function unmarkPaid() {
     patchOrder({ paid_in_full: false, paid_at: null, paid_amount: null });
@@ -586,7 +601,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
       laborRows.forEach((r) => aoa.push([r.name, r.hrs, r.rate, r.cost]));
       aoa.push(["Labor total", "", "", laborCost]);
       aoa.push([]);
-      aoa.push(["Repair total", "", "", repairTotalNum]);
+      aoa.push([quotes.length ? "Revenue (invoiced)" : "Repair total", "", "", revenue]);
       aoa.push(["Total cost", "", "", totalCost]);
       aoa.push(["Profit", "", "", profit]);
       aoa.push([]);
@@ -864,7 +879,11 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
           <SectionTitle>Cost & profit</SectionTitle>
           <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, background: "#F6F8F9" }}>
             <Row style={{ gap: 12, flexWrap: "wrap" }}>
-              <div><Label>Repair total ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={repairTotal} onChange={(e) => setRepairTotal(e.target.value)} onBlur={saveRepairTotal} style={{ width: 130 }} /></div>
+              {quotes.length ? (
+                <div><Label>Revenue (invoiced)</Label><div style={{ fontFamily: BODY, fontSize: 15, fontWeight: 700, color: C.ink, padding: "6px 0", whiteSpace: "nowrap" }}>{money(invoicedTotal)} <span style={{ fontSize: 11, fontWeight: 600, color: C.slate }}>from {quotes.length} invoice{quotes.length > 1 ? "s" : ""}</span></div></div>
+              ) : (
+                <div><Label>Repair total ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={repairTotal} onChange={(e) => setRepairTotal(e.target.value)} onBlur={saveRepairTotal} style={{ width: 130 }} /></div>
+              )}
               <div><Label>Down payment ($)</Label><TextInput type="number" step="0.01" min="0" placeholder="0.00" value={deposit} onChange={(e) => setDeposit(e.target.value)} onBlur={saveDeposit} style={{ width: 130 }} /></div>
               <div><Label>Shop rate ($/hr)</Label><TextInput type="number" step="1" min="0" placeholder={shopRateGlobal ? String(shopRateGlobal) : "0"} value={shopRateInput} onChange={(e) => setShopRateInput(e.target.value)} onBlur={saveShopRateOverride} style={{ width: 130 }} /></div>
             </Row>
@@ -879,7 +898,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
               <CostLine label="Parts cost" value={money(partsCost)} />
               <CostLine label="Labor cost" value={money(laborCost)} />
               <CostLine label="Total cost" value={money(totalCost)} bold />
-              <CostLine label="Repair total" value={money(repairTotalNum)} />
+              <CostLine label={quotes.length ? "Revenue (invoiced)" : "Repair total"} value={money(revenue)} />
               <CostLine label="Profit" value={money(profit)} color={profit >= 0 ? C.green : C.red} bold />
               <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 8, paddingTop: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: C.slate, fontFamily: BODY, marginBottom: 2 }}>Price to charge customer</div>
@@ -912,7 +931,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 {!order.customer_phone && " — add a customer phone to text it automatically."}
               </div>
             )}
-            <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Labor cost uses each tech's pay rate (set in Crew). Parts cost sums the unit cost entered on parts. Profit = repair total − parts − labor.</div>
+            <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 8 }}>Labor cost uses each tech's pay rate (set in Crew). Parts cost sums the unit cost entered on parts. Revenue is the sum of all invoices on this order (or the typed repair total if there are none yet). Profit = revenue − parts − labor.</div>
             <Row style={{ marginTop: 10 }}>
               <button onClick={exportCostProfit} disabled={xlsxBusy} style={{ ...btnSm("#fff", C.ink), opacity: xlsxBusy ? 0.6 : 1 }}>{xlsxBusy ? "Building…" : "⬇ Export to Excel"}</button>
             </Row>

@@ -5,7 +5,7 @@ import { useAuth } from "../AuthContext";
 
 const DAY = 86400000;
 
-/* Monday-start week containing date d (Date or ISO string) -> ISO yyyy-mm-dd of that Monday */
+/* Sunday-start week containing date d (Date or ISO string) -> ISO yyyy-mm-dd of that Sunday; week runs Sun–Sat */
 function ymdLocal(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -14,7 +14,7 @@ function ymdLocal(date) {
 }
 function weekStart(d) {
   const date = new Date(typeof d === "string" ? d + "T12:00:00" : d);
-  const day = (date.getDay() + 6) % 7; // 0 = Monday
+  const day = date.getDay(); // 0 = Sunday
   date.setDate(date.getDate() - day);
   return ymdLocal(date);
 }
@@ -150,7 +150,7 @@ export default function MyHours({ crew, orders, onBack }) {
         {who === profile.id ? "My hours" : `${me?.display_name || "Crew"} — hours`}
       </h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Your hours and mileage for the week, Monday through Sunday. Use the arrows to look back at past weeks — each week totals on its own.
+        Your hours and mileage for the week, Sunday through Saturday. Use the arrows to look back at past weeks — each week totals on its own.
       </p>
 
       {mgr && (

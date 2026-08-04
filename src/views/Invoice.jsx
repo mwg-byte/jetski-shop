@@ -103,6 +103,9 @@ export default function Invoice({ order, parts = [], hours = [], shopRate = 0, o
       <style>{`@media print {
         @page { size: letter portrait; margin: 0.4in; }
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+        /* force browsers to print background colors/images (red banner, dark bars, watermark)
+           instead of stripping them, which was turning the invoice black & white */
+        .inv-overlay, .inv-overlay * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         #root { display: none !important; }
         .inv-overlay { position: static !important; inset: auto !important; background: #fff !important; padding: 0 !important; overflow: visible !important; z-index: auto !important; }
         .inv-wrap { max-width: none !important; margin: 0 !important; }
