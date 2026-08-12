@@ -43,6 +43,8 @@ export default function MyHours({ crew, orders, onBack }) {
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [rate, setRate] = useState(0);
+  const [payType, setPayType] = useState("hourly");
+  const [salary, setSalary] = useState(0);
   const [settings, setSettings] = useState(null);
   const [showStub, setShowStub] = useState(false);
 
@@ -53,10 +55,17 @@ export default function MyHours({ crew, orders, onBack }) {
       supabase.from("lake_tests").select("*").eq("tech_id", who).order("test_date", { ascending: false }),
       supabase.from("trips").select("*").eq("tech_id", who).order("trip_date", { ascending: false }),
       supabase.from("expenses").select("*").eq("tech_id", who).order("expense_date", { ascending: false }),
-      supabase.from("pay_rates").select("hourly_rate").eq("tech_id", who).maybeSingle(),
+      // select the whole row (not just hourly_rate) so salary shows, and don't use
+      // maybeSingle — if a tech has more than one pay_rates row it errors out and the
+      // rate silently reads as 0. Take the first row instead.
+      supabase.from("pay_rates").select("*").eq("tech_id", who),
     ]);
     setShifts(s.data || []); setHours(h.data || []); setLake(l.data || []); setTrips(t.data || []);
-    setExpenses(x.data || []); setRate(pr.data?.hourly_rate || 0);
+    setExpenses(x.data || []);
+    const pay = (pr.data || [])[0] || {};
+    setRate(Number(pay.hourly_rate) || 0);
+    setPayType(pay.pay_type || "hourly");
+    setSalary(Number(pay.salary) || 0);
   }
   useEffect(() => { load(); }, [who]);
   useEffect(() => { supabase.from("settings").select("*").maybeSingle().then(({ data }) => setSettings(data || {})); }, []);
@@ -84,10 +93,13 @@ export default function MyHours({ crew, orders, onBack }) {
   const otThreshold = settings?.ot_weekly_threshold ?? 40;
   const otMult = settings?.ot_multiplier ?? 1.5;
   const mileageRate = settings?.mileage_rate ?? 0.7;
+  const salaried = payType === "salary";
+  const weeklySalary = round2(salary / 52); // salary is annual; pay one week's share
   const regHrs = round2(Math.min(shiftHrs, otThreshold));
   const otHrs = round2(Math.max(0, shiftHrs - otThreshold));
-  const regPay = round2(regHrs * rate);
-  const otPay = round2(otHrs * rate * otMult);
+  // Salaried: fixed weekly amount, no overtime. Hourly: reg + OT from clocked hours.
+  const regPay = salaried ? weeklySalary : round2(regHrs * rate);
+  const otPay = salaried ? 0 : round2(otHrs * rate * otMult);
   const mileagePay = round2(miles * mileageRate);
   const grossPay = round2(regPay + otPay + mileagePay + reimb);
 
@@ -176,6 +188,7 @@ export default function MyHours({ crew, orders, onBack }) {
 
       {showStub && (
         <PayStub name={me?.display_name || "Employee"} period={weekLabel} regHrs={regHrs} otHrs={otHrs} rate={rate} otMult={otMult}
+          salaried={salaried} weeklySalary={weeklySalary}
           regPay={regPay} otPay={otPay} miles={miles} mileageRate={mileageRate} mileagePay={mileagePay}
           reimbItems={expWeek} reimb={reimb} gross={grossPay} email={myEmail} onClose={() => setShowStub(false)} />
       )}
@@ -258,12 +271,13 @@ export default function MyHours({ crew, orders, onBack }) {
   );
 }
 
-function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, miles, mileageRate, mileagePay, reimbItems, reimb, gross, email, onClose }) {
+function PayStub({ name, period, regHrs, otHrs, rate, otMult, salaried, weeklySalary, regPay, otPay, miles, mileageRate, mileagePay, reimbItems, reimb, gross, email, onClose }) {
   const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
   function emailStub() {
     const subject = `Pay stub — ${name} — ${period}`;
-    const lines = ["High Country Powersports — Pay Stub", `Employee: ${name}`, `Pay period: ${period}`, "", `Regular: ${regHrs} hrs @ ${money(rate)} = ${money(regPay)}`];
-    if (otHrs > 0) lines.push(`Overtime: ${otHrs} hrs = ${money(otPay)}`);
+    const lines = ["High Country Powersports — Pay Stub", `Employee: ${name}`, `Pay period: ${period}`, "",
+      salaried ? `Salary: ${money(regPay)} (weekly)` : `Regular: ${regHrs} hrs @ ${money(rate)} = ${money(regPay)}`];
+    if (!salaried && otHrs > 0) lines.push(`Overtime: ${otHrs} hrs = ${money(otPay)}`);
     lines.push(`Mileage: ${miles} mi @ ${money(mileageRate)} = ${money(mileagePay)}`);
     if (reimb > 0) lines.push(`Reimbursements: ${money(reimb)}`);
     lines.push("", `Gross pay: ${money(gross)}`, "", "Gross earnings summary; does not reflect tax withholding or other deductions.");
@@ -302,8 +316,10 @@ function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, mil
               <span style={{ flex: 1, padding: "5px 8px", textAlign: "right" }}>Rate</span>
               <span style={{ flex: 1, padding: "5px 8px", textAlign: "right" }}>Amount</span>
             </div>
-            {r("Regular", regHrs, money(rate), regPay)}
-            {otHrs > 0 && r("Overtime", otHrs, money(round2(rate * otMult)), otPay)}
+            {salaried
+              ? r("Salary", "—", "weekly", regPay)
+              : r("Regular", regHrs, money(rate), regPay)}
+            {!salaried && otHrs > 0 && r("Overtime", otHrs, money(round2(rate * otMult)), otPay)}
             {r("Mileage", `${miles} mi`, money(mileageRate), mileagePay)}
             {reimb > 0 && r("Reimbursements", "—", "—", reimb)}
             <div style={{ display: "flex", background: "#F6F8F9" }}>
@@ -322,7 +338,8 @@ function PayStub({ name, period, regHrs, otHrs, rate, otMult, regPay, otPay, mil
               ))}
             </div>
           )}
-          {!rate && <p style={{ fontFamily: BODY, fontSize: 12, color: "#B23A48", marginTop: 12 }}>No hourly rate set for this employee yet — pay shows $0. Set it in the Crew screen.</p>}
+          {!salaried && !rate && <p style={{ fontFamily: BODY, fontSize: 12, color: "#B23A48", marginTop: 12 }}>No hourly rate set for this employee yet — pay shows $0. Set it in the Crew screen.</p>}
+          {salaried && !weeklySalary && <p style={{ fontFamily: BODY, fontSize: 12, color: "#B23A48", marginTop: 12 }}>No salary amount set for this employee yet — pay shows $0. Set it in the Crew screen.</p>}
           <p style={{ fontFamily: BODY, fontSize: 11, color: "#555", marginTop: 14 }}>
             Gross earnings summary for the period shown. This statement does not reflect tax withholding or other deductions.
           </p>
