@@ -15,9 +15,10 @@ const GROUPS = [
 ];
 
 export function WorkOrderList({
-  orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onNew,
+  orders, crew, liveCounts, assignees = {}, canCreate, onOpen, onReorder, onReorderTo, onNew,
   tab: tabProp, setTab: setTabProp, techFilter: techFilterProp, setTechFilter: setTechFilterProp, search: searchProp, setSearch: setSearchProp,
 }) {
+  const [priEdit, setPriEdit] = useState({}); // order id -> the number being typed in its priority box
   // Falls back to local state if the parent doesn't pass controlled state/setters in.
   const [tabLocal, setTabLocal] = useState("active");
   const [techFilterLocal, setTechFilterLocal] = useState("all");
@@ -58,6 +59,26 @@ export function WorkOrderList({
   const visible = orders
     .map((o, i) => ({ o, rank: i }))
     .filter(({ o }) => matches(o) && (searching || group.statuses.includes(o.status)));
+
+  // Type a priority number and jump the job straight to that spot in the list,
+  // instead of clicking the arrows one position at a time. We move it within the
+  // visible list, then write that new order back into the full shop ordering.
+  function commitPriority(orderId, value) {
+    setPriEdit((s) => { const n = { ...s }; delete n[orderId]; return n; });
+    const target = parseInt(value, 10);
+    if (!onReorderTo || isNaN(target)) return;
+    const fromVi = visible.findIndex((v) => v.o.id === orderId);
+    if (fromVi < 0) return;
+    const toVi = Math.min(Math.max(target - 1, 0), visible.length - 1);
+    if (toVi === fromVi) return;
+    const vis = visible.slice();
+    const [moved] = vis.splice(fromVi, 1);
+    vis.splice(toVi, 0, moved);
+    const slots = visible.map((v) => v.rank).slice().sort((a, b) => a - b);
+    const full = orders.slice();
+    vis.forEach((v, i) => { full[slots[i]] = v.o; });
+    onReorderTo(full.map((o) => o.id));
+  }
 
   return (
     <>
@@ -116,8 +137,19 @@ export function WorkOrderList({
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", padding: "8px 6px", background: C.ink, minWidth: 56 }}>
                   <button onClick={() => onReorder(o.id, upDelta)} disabled={vi === 0} style={{ color: "#fff", fontSize: 16, opacity: vi === 0 ? 0.25 : 1, padding: "4px 8px" }}>▲</button>
                   <div style={{ textAlign: "center" }}>
-                    <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{vi + 1}</div>
-                    <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.15em", color: "#7E93A3" }}>priority</div>
+                    {!searching && onReorderTo ? (
+                      <input type="number" min="1" inputMode="numeric"
+                        value={priEdit[o.id] ?? String(vi + 1)}
+                        onChange={(e) => setPriEdit((s) => ({ ...s, [o.id]: e.target.value }))}
+                        onFocus={(e) => e.target.select()}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+                        onBlur={(e) => commitPriority(o.id, e.target.value)}
+                        title="Type a position and press Enter to move this job there"
+                        style={{ width: 42, textAlign: "center", fontFamily: DISPLAY, fontSize: 22, fontWeight: 700, color: "#fff", background: "transparent", border: "1px solid #34506A", borderRadius: 6, padding: "2px 0", lineHeight: 1 }} />
+                    ) : (
+                      <div style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{vi + 1}</div>
+                    )}
+                    <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.15em", color: "#7E93A3", marginTop: 2 }}>priority</div>
                   </div>
                   <button onClick={() => onReorder(o.id, downDelta)} disabled={vi === visible.length - 1} style={{ color: "#fff", fontSize: 16, opacity: vi === visible.length - 1 ? 0.25 : 1, padding: "4px 8px" }}>▼</button>
                 </div>

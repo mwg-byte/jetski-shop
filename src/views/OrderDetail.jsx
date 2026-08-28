@@ -32,6 +32,62 @@ const quoteTotal = (d) => {
   return sub - (Number(mm.discount) || 0) + (Number(mm.shipping) || 0) + tax;
 };
 
+// Finger/mouse signature pad. Captures a PNG data URL plus the signer's name.
+function SignaturePad({ onSave }) {
+  const ref = useRef(null);
+  const drawing = useRef(false);
+  const [hasInk, setHasInk] = useState(false);
+  const [name, setName] = useState("");
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const ctx = c.getContext("2d");
+    ctx.lineWidth = 2.4; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.strokeStyle = "#0C2233";
+  }, []);
+  const point = (e) => {
+    const c = ref.current, r = c.getBoundingClientRect();
+    const t = e.touches && e.touches[0] ? e.touches[0] : e;
+    return { x: (t.clientX - r.left) * (c.width / r.width), y: (t.clientY - r.top) * (c.height / r.height) };
+  };
+  const down = (e) => { e.preventDefault(); drawing.current = true; const ctx = ref.current.getContext("2d"); const p = point(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
+  const move = (e) => { if (!drawing.current) return; e.preventDefault(); const ctx = ref.current.getContext("2d"); const p = point(e); ctx.lineTo(p.x, p.y); ctx.stroke(); if (!hasInk) setHasInk(true); };
+  const up = () => { drawing.current = false; };
+  const clear = () => { const c = ref.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHasInk(false); };
+  const canSave = hasInk && name.trim();
+  return (
+    <div>
+      <TextInput placeholder="Type the customer's name" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 300, marginBottom: 8 }} />
+      <div style={{ border: `1px dashed ${C.line}`, borderRadius: 8, background: "#fff", width: "100%", maxWidth: 440 }}>
+        <canvas ref={ref} width={420} height={150}
+          onMouseDown={down} onMouseMove={move} onMouseUp={up} onMouseLeave={up}
+          onTouchStart={down} onTouchMove={move} onTouchEnd={up}
+          style={{ width: "100%", height: 150, display: "block", cursor: "crosshair", touchAction: "none" }} />
+      </div>
+      <Row style={{ marginTop: 8 }}>
+        <button onClick={() => canSave && onSave(ref.current.toDataURL("image/png"), name.trim())} disabled={!canSave} style={{ ...btnSm(C.teal), opacity: canSave ? 1 : 0.4 }}>Save signature</button>
+        <button onClick={clear} style={{ fontSize: 12, fontWeight: 600, color: C.slate, fontFamily: BODY }}>Clear</button>
+      </Row>
+    </div>
+  );
+}
+
+function SignatureBlock({ title, note, sig, signedName, signedAt, onSave, onClear, canManage }) {
+  return (
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, flex: 1, minWidth: 300 }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, marginBottom: 8 }}>{note}</div>
+      {sig ? (
+        <div>
+          <img src={sig} alt={`${title} signature`} style={{ width: "100%", maxWidth: 420, height: 100, objectFit: "contain", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+          <div style={{ fontSize: 13, color: C.ink, fontFamily: BODY, marginTop: 6 }}>Signed by <b>{signedName || "—"}</b>{signedAt ? ` · ${fmtDate(signedAt)}` : ""}</div>
+          {canManage && <button onClick={onClear} style={{ fontSize: 12, color: C.red, fontFamily: BODY, marginTop: 4 }}>Clear &amp; re-sign</button>}
+        </div>
+      ) : (
+        <SignaturePad onSave={onSave} />
+      )}
+    </div>
+  );
+}
+
 function QuotesPanel({ quotes, skis, isMaint, onOpen, onNew, onDelete }) {
   const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
   const unitById = (id) => skis.find((s) => s.id === id);
@@ -224,6 +280,18 @@ export default function OrderDetail({ orderId, crew, onBack, canDelete, settings
           <button onClick={() => setConfirmDelete(true)} style={{ fontSize: 12, fontWeight: 600, color: C.red, fontFamily: BODY }}>Delete order</button>
         ))}
       </Row>
+
+      {order.limbo && (
+        <div style={{ marginTop: 12, borderRadius: 8, border: `1px solid ${C.orange}`, background: C.orange + "12", padding: 12 }}>
+          <Row style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>In limbo — not in the shop yet</div>
+              <div style={{ fontSize: 12, color: C.slate, fontFamily: BODY, maxWidth: 520 }}>Quoted and waiting on the customer. Time in shop hasn't started counting. Bring it in once the ski actually arrives — that starts the clock.</div>
+            </div>
+            <button onClick={async () => { await patchOrder({ limbo: false, status: "intake", created_at: new Date().toISOString(), priority: Math.floor(Date.now() / 1000) }); }} style={btn(C.orange)}>Bring into shop →</button>
+          </Row>
+        </div>
+      )}
 
       <Row style={{ justifyContent: "space-between", alignItems: "flex-start", marginTop: 12 }}>
         <div>
@@ -534,6 +602,13 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
     setParts(parts.map((x) => (x.id === p.id ? { ...x, kind: "taken", created_at } : x)));
     setEditPartId(null);
     await supabase.from("parts").update({ kind: "taken", created_at }).eq("id", p.id);
+  }
+  // Undo a "taken" part — send it back to the parts requests list (as received,
+  // so it doesn't reappear as unbought). Reverses the "✓ Received" action.
+  async function moveBackToRequest(p) {
+    setParts(parts.map((x) => (x.id === p.id ? { ...x, kind: "request", status: "received" } : x)));
+    setEditPartId(null);
+    await supabase.from("parts").update({ kind: "request", status: "received" }).eq("id", p.id);
   }
   async function uploadFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -903,6 +978,7 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
                 <span style={{ fontSize: 12, color: C.slate }}>{fmtDate(p.created_at)}</span>
                 {isMgr && p.cost != null && <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>cost {money(Number(p.cost) * Number(p.qty))}</span>}
                 {p.price != null && <span style={{ fontWeight: 700, color: C.teal, fontFamily: BODY }}>{money(Number(p.price) * Number(p.qty))}</span>}
+                <button onClick={() => moveBackToRequest(p)} title="Send this back to the parts requests list" style={{ fontSize: 12, fontWeight: 600, color: C.teal, fontFamily: BODY }}>↩ to request</button>
                 <button onClick={() => startEditPart(p)} style={{ fontSize: 12, color: C.teal }}>edit</button>
                 <button onClick={async () => { setParts(parts.filter((x) => x.id !== p.id)); await supabase.from("parts").delete().eq("id", p.id); }} style={{ fontSize: 12, color: C.red }}>remove</button>
               </Row>
@@ -919,6 +995,26 @@ function JobTab({ order, crew, profile, hours, setHours, sessions, setSessions, 
         {multiSki && <SkiPick value={takenForm.ski_id} onChange={(v) => setTakenForm({ ...takenForm, ski_id: v })} />}
         <button onClick={addTaken} style={btn("#fff", C.ink)}>Log part taken</button>
       </Row>
+
+      <SectionTitle>Signatures</SectionTitle>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <SignatureBlock
+          title="Intake authorization"
+          note="Customer authorizes the work when the ski is dropped off."
+          sig={order.intake_signature} signedName={order.intake_signed_name} signedAt={order.intake_signed_at}
+          canManage={isMgr}
+          onSave={(url, nm) => patchOrder({ intake_signature: url, intake_signed_name: nm, intake_signed_at: new Date().toISOString() })}
+          onClear={() => patchOrder({ intake_signature: null, intake_signed_name: null, intake_signed_at: null })}
+        />
+        <SignatureBlock
+          title="Pickup confirmation"
+          note="Customer confirms they received the ski at pickup."
+          sig={order.pickup_signature} signedName={order.pickup_signed_name} signedAt={order.pickup_signed_at}
+          canManage={isMgr}
+          onSave={(url, nm) => patchOrder({ pickup_signature: url, pickup_signed_name: nm, pickup_signed_at: new Date().toISOString() })}
+          onClear={() => patchOrder({ pickup_signature: null, pickup_signed_name: null, pickup_signed_at: null })}
+        />
+      </div>
 
       {isMgr && (
         <>

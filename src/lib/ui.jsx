@@ -26,8 +26,14 @@ export function Label({ children }) {
 return <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>{children}</div>;
 }
 
-export function SectionTitle({ children }) {
-return <h3 style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase" }}>{children}</h3>;
+export function SectionTitle({ children, right }) {
+if (right === undefined) return <h3 style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase" }}>{children}</h3>;
+return (
+<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 18, marginBottom: 4 }}>
+<h3 style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", margin: 0 }}>{children}</h3>
+<div>{right}</div>
+</div>
+);
 }
 
 export function StatusChip({ status, big }) {

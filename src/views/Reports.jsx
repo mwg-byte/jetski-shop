@@ -19,11 +19,35 @@ function loadXLSX() {
 const skiText = (o) => (o ? [o.year, o.make, o.model].filter(Boolean).join(" ") : "");
 const skiFull = (o) => (o ? `${o.customer_name}${skiText(o) ? " — " + skiText(o) : ""}` : "—");
 
+const isNum = (v) => v !== "" && v != null && !isNaN(Number(String(v).replace(/[%$,]/g, "")));
+const numVal = (v) => Number(String(v).replace(/[%$,]/g, "")) || 0;
+
+// A simple, theme-consistent horizontal bar chart from [label, value] pairs.
+function BarChart({ data, color = C.teal, unit = "" }) {
+  const max = Math.max(1, ...data.map((d) => d[1]));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {data.map(([label, val], i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 90, fontSize: 12, color: C.slate, fontFamily: BODY, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}</div>
+          <div style={{ flex: 1, background: "#F1F4F6", borderRadius: 4, height: 18, position: "relative" }}>
+            <div style={{ width: `${(val / max) * 100}%`, background: color, height: "100%", borderRadius: 4, minWidth: val > 0 ? 2 : 0 }} />
+          </div>
+          <div style={{ width: 60, fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: BODY }}>{val}{unit}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Reports({ onBack }) {
   const [range, setRange] = useState("all");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [sheetIdx, setSheetIdx] = useState(0);
+  const [tblSearch, setTblSearch] = useState("");
+  const [sort, setSort] = useState({ col: null, dir: 1 });
 
   useEffect(() => {
     (async () => {
@@ -39,7 +63,7 @@ export default function Reports({ onBack }) {
         supabase.from("expenses").select("*"),
       ]);
       setData({
-        profiles: p.data || [], orders: w.data || [], hours: h.data || [],
+        profiles: p.data || [], orders: (w.data || []).filter((o) => !o.limbo), hours: h.data || [],
         lake: l.data || [], shifts: s.data || [], trips: t.data || [], parts: pa.data || [], assignees: a.data || [], expenses: ex.data || [],
       });
     })();
@@ -202,7 +226,7 @@ export default function Reports({ onBack }) {
       <button onClick={onBack} style={{ fontSize: 14, fontWeight: 600, color: C.teal, fontFamily: BODY }}>← All work orders</button>
       <h2 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginTop: 8 }}>Reports</h2>
       <p style={{ fontSize: 13, color: C.slate, fontFamily: BODY }}>
-        Download a multi-sheet Excel workbook: employee hours (shift vs on-skis), each ski's time at the shop, repeat visits, lake tests, mileage, receipts, parts, and more.
+        Browse every sheet right here — filter and sort each table, and see hours and intakes at a glance — or download the whole thing as a multi-sheet Excel workbook.
       </p>
 
       <SectionTitle right={
@@ -228,6 +252,94 @@ export default function Reports({ onBack }) {
             {stat("Lake pass rate", report.preview.passRate)}
             {stat("Mileage", `${report.preview.totalMiles} mi`)}
           </div>
+
+          {/* Charts */}
+          {(() => {
+            const seasonSheet = report.sheets.find((s) => s.name === "Seasonality");
+            const empSheet = report.sheets.find((s) => s.name === "Employees");
+            const seasonData = seasonSheet ? seasonSheet.aoa.slice(1).map((r) => [r[0], numVal(r[1])]) : [];
+            const empData = empSheet
+              ? empSheet.aoa.slice(1).map((r) => [r[0], numVal(r[3])]).filter((r) => r[1] > 0).sort((a, b) => b[1] - a[1])
+              : [];
+            if (!seasonData.length && !empData.length) return null;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginTop: 18 }}>
+                {empData.length > 0 && (
+                  <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 10 }}>Job hours by employee</div>
+                    <BarChart data={empData} color={C.teal} unit="h" />
+                  </div>
+                )}
+                {seasonData.length > 0 && (
+                  <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, textTransform: "uppercase", color: C.ink, marginBottom: 10 }}>Intakes by month</div>
+                    <BarChart data={seasonData} color={C.orange} />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Browse every sheet in-app */}
+          <SectionTitle>Browse the data</SectionTitle>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {report.sheets.map((s, i) => (
+              <button key={s.name} onClick={() => { setSheetIdx(i); setSort({ col: null, dir: 1 }); setTblSearch(""); }} style={{
+                fontFamily: BODY, fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 999,
+                background: sheetIdx === i ? C.ink : "#F1F4F6", color: sheetIdx === i ? "#fff" : C.slate,
+              }}>{s.name}</button>
+            ))}
+          </div>
+          {(() => {
+            const sheet = report.sheets[sheetIdx] || report.sheets[0];
+            const header = sheet.aoa[0] || [];
+            let body = sheet.aoa.slice(1);
+            const q = tblSearch.trim().toLowerCase();
+            if (q) body = body.filter((row) => row.some((c) => String(c ?? "").toLowerCase().includes(q)));
+            if (sort.col != null) {
+              body = body.slice().sort((a, b) => {
+                const av = a[sort.col], bv = b[sort.col];
+                if (isNum(av) && isNum(bv)) return (numVal(av) - numVal(bv)) * sort.dir;
+                return String(av ?? "").localeCompare(String(bv ?? "")) * sort.dir;
+              });
+            }
+            return (
+              <>
+                <Row style={{ marginBottom: 8 }}>
+                  <input value={tblSearch} onChange={(e) => setTblSearch(e.target.value)} placeholder={`Filter ${sheet.name.toLowerCase()}…`} style={{ fontFamily: BODY, fontSize: 13, border: `1px solid ${C.line}`, borderRadius: 6, padding: "7px 10px", background: "#FBFCFD", maxWidth: 280, width: "100%" }} />
+                  <span style={{ fontSize: 12, color: C.slate, fontFamily: BODY }}>{body.length} row{body.length === 1 ? "" : "s"}</span>
+                </Row>
+                <div style={{ overflowX: "auto", border: `1px solid ${C.line}`, borderRadius: 8 }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: BODY, fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {header.map((h, ci) => {
+                          const active = sort.col === ci;
+                          return (
+                            <th key={ci} onClick={() => setSort((s) => ({ col: ci, dir: s.col === ci ? -s.dir : 1 }))} style={{
+                              position: "sticky", top: 0, textAlign: "left", padding: "8px 10px", background: C.ink, color: "#fff",
+                              fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none",
+                            }}>{h}{active ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {body.length === 0 ? (
+                        <tr><td colSpan={header.length || 1} style={{ padding: 14, color: C.slate, textAlign: "center" }}>No rows.</td></tr>
+                      ) : body.map((row, ri) => (
+                        <tr key={ri} style={{ background: ri % 2 ? "#F6F8F9" : "#fff" }}>
+                          {header.map((_, ci) => (
+                            <td key={ci} style={{ padding: "7px 10px", borderTop: `1px solid ${C.line}`, color: C.ink, whiteSpace: isNum(row[ci]) ? "nowrap" : "normal" }}>{row[ci] ?? ""}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
 
           <div style={{ marginTop: 16 }}>
             <button onClick={download} disabled={busy} style={{ ...btn("#fff", C.ink), opacity: busy ? 0.6 : 1 }}>

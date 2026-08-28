@@ -20,6 +20,8 @@ import Stock from "./views/Stock";
 import MaintenanceTab from "./views/MaintenanceTab";
 import Pipeline from "./views/Pipeline";
 import Calendar from "./views/Calendar";
+import Limbo from "./views/Limbo";
+import Callbacks from "./views/Callbacks";
 import Settings from "./views/Settings";
 
 export default function App() {
@@ -35,6 +37,13 @@ export default function App() {
   const [settings, setSettings] = useState(null);
   const [assignees, setAssignees] = useState({});
   const [unread, setUnread] = useState(0);
+  const [cbDue, setCbDue] = useState(0);
+
+  // Orders on the shop floor vs. quoted-but-not-here (Limbo). Everything shop-side
+  // (list, calendar, planner, dashboard, counts) works off shopOrders so limbo
+  // jobs never show up there or accrue "time in shop".
+  const shopOrders = orders.filter((o) => !o.limbo);
+  const limboOrders = orders.filter((o) => o.limbo);
 
   async function loadOrders() {
     const { data } = await supabase.from("work_orders").select("*").order("priority");
@@ -58,25 +67,44 @@ export default function App() {
     const { count } = await supabase.from("dashboard_messages").select("*", { count: "exact", head: true }).eq("recipient_id", profile.id).eq("read", false);
     setUnread(count || 0);
   }
+  async function loadCbDue() {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const { count } = await supabase.from("callbacks").select("*", { count: "exact", head: true }).eq("done", false).lte("due_date", todayIso);
+    setCbDue(count || 0);
+  }
   async function loadSettings() {
     const { data } = await supabase.from("settings").select("*").eq("id", 1).single();
     setSettings(data);
   }
-  useEffect(() => { loadOrders(); loadCrew(); loadSettings(); loadUnread(); }, []);
+  useEffect(() => { loadOrders(); loadCrew(); loadSettings(); loadUnread(); loadCbDue(); }, []);
 
+  // Persist a new ordering of the shop-floor orders (priority 0..n). Limbo orders
+  // keep their own priority values and are appended to state untouched.
+  function persistOrder(list) {
+    const limbo = orders.filter((o) => o.limbo);
+    setOrders([...list, ...limbo]);
+    Promise.all(list.map((o, idx) => supabase.from("work_orders").update({ priority: idx }).eq("id", o.id)));
+  }
+  // Up/down arrows: swap with the neighbour `dir` positions away (in shop order).
   async function reorder(id, dir) {
-    const i = orders.findIndex((o) => o.id === id);
+    const list = orders.filter((o) => !o.limbo);
+    const i = list.findIndex((o) => o.id === id);
     const j = i + dir;
-    if (j < 0 || j >= orders.length) return;
-    const next = [...orders];
-    [next[i], next[j]] = [next[j], next[i]];
-    setOrders(next);
-    await Promise.all(next.map((o, idx) => supabase.from("work_orders").update({ priority: idx }).eq("id", o.id)));
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    persistOrder(list);
+  }
+  // Type-a-number: caller hands back the full shop order as an array of ids.
+  function reorderTo(ids) {
+    const map = new Map(orders.map((o) => [o.id, o]));
+    persistOrder(ids.map((x) => map.get(x)).filter(Boolean));
   }
 
   const navItems = [
     { key: "home", label: "Home", show: true },
     { key: "list", label: "Work orders", show: true },
+    { key: "limbo", label: "Limbo", show: true },
+    { key: "callbacks", label: "Call-backs", show: true },
     { key: "calendar", label: "Calendar", show: true },
     { key: "planner", label: "Planner", show: mgr },
     { key: "maintenance", label: "Maintenance", show: canMaint },
@@ -105,7 +133,7 @@ export default function App() {
                 Jet Ski Shop
               </div>
               <div style={{ fontSize: 12, color: "#7E93A3", fontFamily: BODY, marginTop: 4 }}>
-                {orders.filter((o) => o.status !== "closed").length} open ·{" "}
+                {shopOrders.filter((o) => o.status !== "closed").length} open ·{" "}
                 {activeShiftCount > 0 ? <span style={{ color: "#6EE7B7", fontWeight: 600 }}>{activeShiftCount} on shift</span> : "nobody on shift"}
               </div>
             </div>
@@ -120,7 +148,11 @@ export default function App() {
                 fontFamily: BODY, fontSize: 13, fontWeight: 600, padding: "7px 12px", borderRadius: 6,
                 background: view.name === n.key ? C.orange : "#1B3A50",
                 color: view.name === n.key ? "#fff" : "#CFE0EA",
-              }}>{n.label}{n.key === "home" && unread > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#fff", color: C.orange }}>{unread}</span>}</button>
+              }}>{n.label}{(() => {
+                const badge = n.key === "home" ? unread : n.key === "callbacks" ? cbDue : n.key === "limbo" ? limboOrders.length : 0;
+                if (!badge) return null;
+                return <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#fff", color: C.orange }}>{badge}</span>;
+              })()}</button>
             ))}
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               {canMaint && (
@@ -140,12 +172,12 @@ export default function App() {
 
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "16px" }}>
         {view.name === "home" ? (
-          <Dashboard crew={crew} orders={orders} assignees={assignees} mgr={mgr} settings={settings} onUnread={setUnread} onOpen={(id) => setView({ name: "detail", id })} />
+          <Dashboard crew={crew} orders={shopOrders} assignees={assignees} mgr={mgr} settings={settings} onUnread={setUnread} onOpen={(id) => setView({ name: "detail", id })} />
         ) : view.name === "new" ? (
-          <NewOrderForm nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
+          <NewOrderForm nextPriority={shopOrders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { setOrders([...orders, o]); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "newmaint" ? (
-          <MaintenanceForm crew={crew} nextPriority={orders.length} onCancel={() => setView({ name: "list" })}
+          <MaintenanceForm crew={crew} nextPriority={shopOrders.length} onCancel={() => setView({ name: "list" })}
             onDone={(o) => { loadOrders(); setView({ name: "detail", id: o.id }); }} />
         ) : view.name === "detail" ? (
           <OrderDetail orderId={view.id} crew={crew} canDelete={mgr} settings={settings}
@@ -153,9 +185,9 @@ export default function App() {
         ) : view.name === "timeclock" ? (
           <ShiftClock crew={crew} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "myhours" ? (
-          <MyHours crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
+          <MyHours crew={crew} orders={shopOrders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "laketest" ? (
-          <LakeClock crew={crew} orders={orders} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
+          <LakeClock crew={crew} orders={shopOrders} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "mileage" ? (
           <Mileage crew={crew} settings={settings} onBack={() => setView({ name: "list" })} />
         ) : view.name === "payroll" ? (
@@ -171,23 +203,29 @@ export default function App() {
         ) : view.name === "stock" ? (
           <Stock onBack={() => setView({ name: "list" })} />
         ) : view.name === "inventory" ? (
-          <Inventory crew={crew} orders={orders} onBack={() => setView({ name: "list" })} />
+          <Inventory crew={crew} orders={shopOrders} onBack={() => setView({ name: "list" })} />
         ) : view.name === "calendar" ? (
-          <Calendar orders={orders} assignees={assignees} mgr={mgr}
+          <Calendar orders={shopOrders} assignees={assignees} mgr={mgr} crew={crew} onAssigneesChange={loadOrders}
             onOpen={(id) => setView({ name: "detail", id })} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
+        ) : view.name === "limbo" ? (
+          <Limbo orders={limboOrders} crew={crew} onChange={loadOrders}
+            onOpen={(id) => setView({ name: "detail", id })} onBack={() => setView({ name: "list" })} />
+        ) : view.name === "callbacks" ? (
+          <Callbacks crew={crew} orders={orders} onCountChange={loadCbDue}
+            onOpen={(id) => setView({ name: "detail", id })} onBack={() => setView({ name: "list" })} />
         ) : view.name === "planner" ? (
-          <Pipeline orders={orders} crew={crew}
+          <Pipeline orders={shopOrders} crew={crew}
             onOpen={(id) => setView({ name: "detail", id })} onBack={() => { loadOrders(); setView({ name: "list" }); }} />
         ) : view.name === "maintenance" ? (
-          <MaintenanceTab orders={orders} crew={crew} assignees={assignees} liveCounts={liveCounts}
+          <MaintenanceTab orders={shopOrders} crew={crew} assignees={assignees} liveCounts={liveCounts}
             onOpen={(id) => setView({ name: "detail", id })} onBack={() => setView({ name: "list" })} />
         ) : view.name === "crew" ? (
           <Crew onCrewChange={loadCrew} onBack={() => setView({ name: "list" })} />
         ) : view.name === "settings" ? (
           <Settings settings={settings} crew={crew} onSaved={setSettings} onBack={() => setView({ name: "list" })} />
         ) : (
-          <WorkOrderList orders={orders} crew={crew} liveCounts={liveCounts} assignees={assignees} canCreate={mgr}
-            onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onNew={() => setView({ name: "new" })}
+          <WorkOrderList orders={shopOrders} crew={crew} liveCounts={liveCounts} assignees={assignees} canCreate={mgr}
+            onOpen={(id) => setView({ name: "detail", id })} onReorder={reorder} onReorderTo={reorderTo} onNew={() => setView({ name: "new" })}
             tab={listState.tab} setTab={(v) => setListState((s) => ({ ...s, tab: v }))}
             techFilter={listState.techFilter} setTechFilter={(v) => setListState((s) => ({ ...s, techFilter: v }))}
             search={listState.search} setSearch={(v) => setListState((s) => ({ ...s, search: v }))} />

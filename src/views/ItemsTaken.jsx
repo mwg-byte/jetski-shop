@@ -63,6 +63,12 @@ export default function ItemsTaken({ crew, onBack }) {
     if (it.source === "shop") await supabase.from("consumables_taken").delete().eq("id", it.id);
     else await supabase.from("parts").delete().eq("id", it.id);
   }
+  // Send a taken work-order part back to the parts requests list.
+  async function moveBack(it) {
+    if (it.source !== "order") return;
+    setLogs(logs.filter((x) => !(x.source === it.source && x.id === it.id)));
+    await supabase.from("parts").update({ kind: "request", status: "received" }).eq("id", it.id);
+  }
   const canRemove = (it) => it.source === "shop" ? (it.taken_by === profile.id || isMgr) : isMgr;
 
   // Managers can set the customer price on a taken part right here — saves straight to the part.
@@ -153,6 +159,7 @@ export default function ItemsTaken({ crew, onBack }) {
                         <span style={{ flex: 1, color: C.slate, minWidth: 80 }}>{it.note}</span>
                         {isMgr && it.cost != null && <span style={{ fontWeight: 700, color: C.ink }}>{money(Number(it.cost) * Number(it.qty))}</span>}
                         {priceEditor(it)}
+                        {isMgr && it.source === "order" && <button onClick={() => moveBack(it)} title="Send back to the parts requests list" style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>↩ to request</button>}
                         {isMgr && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
                       </Row>
                     ))}
@@ -192,6 +199,7 @@ export default function ItemsTaken({ crew, onBack }) {
                     <span style={{ fontSize: 12, color: C.slate }}>{nameOf(it.taken_by)}</span>
                   )}
                   {priceEditor(it)}
+                  {isMgr && it.source === "order" && <button onClick={() => moveBack(it)} title="Send back to the parts requests list" style={{ fontSize: 12, fontWeight: 600, color: C.teal }}>↩ to request</button>}
                   {canRemove(it) && <button onClick={() => remove(it)} style={{ fontSize: 12, color: C.red }}>remove</button>}
                 </Row>
               ))}

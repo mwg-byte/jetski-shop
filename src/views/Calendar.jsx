@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { supabase, C, DISPLAY, BODY, today, stageOf } from "../lib/supabase";
-import { Card, Row, SectionTitle, TextInput, StatusChip } from "../lib/ui";
+import { Card, Row, SectionTitle, TextInput, StatusChip, btn, btnSm } from "../lib/ui";
 import { useAuth } from "../AuthContext";
 
 const dateOnly = (v) => (v ? String(v).slice(0, 10) : "");
@@ -29,18 +29,36 @@ const isoOf = (d) => {
   return `${y}-${m}-${day}`;
 };
 
-export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onBack }) {
+export default function Calendar({ orders = [], assignees = {}, mgr, crew = [], onAssigneesChange, onOpen, onBack }) {
   const { profile } = useAuth();
   const [anchor, setAnchor] = useState(() => new Date());
   const [scope, setScope] = useState("mine"); // "mine" | "all"
+  const [dayModal, setDayModal] = useState(null); // ISO date of the day being edited
+  const [dirty, setDirty] = useState(false); // assignees changed — refresh parent on close
 
   // local copy so the grid updates the moment a date is set
   const [items, setItems] = useState(orders);
   useEffect(() => { setItems(orders); }, [orders]);
+  // local assignees so tech chips update instantly
+  const [asg, setAsg] = useState(assignees);
+  useEffect(() => { setAsg(assignees); }, [assignees]);
 
   async function schedule(id, date) {
     setItems((list) => list.map((o) => (o.id === id ? { ...o, scheduled_date: date } : o)));
     await supabase.from("work_orders").update({ scheduled_date: date }).eq("id", id);
+  }
+  async function toggleTech(orderId, techId) {
+    const cur = asg[orderId] || [];
+    const has = cur.includes(techId);
+    const next = has ? cur.filter((x) => x !== techId) : [...cur, techId];
+    setAsg((a) => ({ ...a, [orderId]: next }));
+    setDirty(true);
+    if (has) await supabase.from("order_assignees").delete().eq("order_id", orderId).eq("tech_id", techId);
+    else await supabase.from("order_assignees").insert({ order_id: orderId, tech_id: techId });
+  }
+  function closeDay() {
+    setDayModal(null);
+    if (dirty && onAssigneesChange) { onAssigneesChange(); setDirty(false); }
   }
 
   // jobs with a scheduled date that aren't closed
@@ -124,10 +142,10 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
           const isToday = iso === todayIso;
           const jobs = byDate[iso] || [];
           return (
-            <div key={iso} style={{
+            <div key={iso} onClick={mgr ? () => { setDayModal(iso); } : undefined} style={{
               minHeight: 96, borderRadius: 6, border: `1px solid ${isToday ? C.orange : C.line}`,
               background: inMonth ? C.card : "#F6F8F9", padding: 5, display: "flex", flexDirection: "column", gap: 3,
-              opacity: inMonth ? 1 : 0.55,
+              opacity: inMonth ? 1 : 0.55, cursor: mgr ? "pointer" : "default",
             }}>
               <div style={{
                 fontSize: 12, fontWeight: isToday ? 700 : 600, fontFamily: BODY,
@@ -137,7 +155,7 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
                 const stg = stageOf(o.status);
                 const maint = o.kind === "maintenance";
                 return (
-                  <button key={o.id} onClick={() => onOpen(o.id)} title={`${o.customer_name} — ${stg.label}`} style={{
+                  <button key={o.id} onClick={(e) => { e.stopPropagation(); onOpen(o.id); }} title={`${o.customer_name} — ${stg.label}`} style={{
                     textAlign: "left", borderRadius: 4, padding: "3px 6px", fontFamily: BODY, fontSize: 11, fontWeight: 600,
                     lineHeight: 1.25, color: "#fff", background: maint ? "#A16207" : stg.color,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -153,7 +171,7 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
 
       {/* legend */}
       <div style={{ fontSize: 11, color: C.slate, fontFamily: BODY, marginTop: 12 }}>
-        Colors follow each job's status. <span style={{ color: "#A16207", fontWeight: 700 }}>Amber</span> = maintenance task. Tap a job to open it.
+        Colors follow each job's status. <span style={{ color: "#A16207", fontWeight: 700 }}>Amber</span> = maintenance task. Tap a job to open it{mgr ? ", or tap any day to schedule jobs and assign techs" : ""}.
       </div>
 
       {/* add jobs to the calendar (managers) */}
@@ -215,6 +233,71 @@ export default function Calendar({ orders = [], assignees = {}, mgr, onOpen, onB
           </p>
         )}
       </div>
+
+      {/* day editor modal */}
+      {dayModal && (() => {
+        const dd = new Date(dayModal + "T12:00:00");
+        const dayLabel = dd.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+        const onDay = items.filter((o) => dateOnly(o.scheduled_date) === dayModal && o.status !== "closed");
+        const toAdd = items.filter((o) => !o.scheduled_date && o.status !== "closed");
+        const techChip = (o, t) => {
+          const on = (asg[o.id] || []).includes(t.id);
+          return (
+            <button key={t.id} onClick={() => toggleTech(o.id, t.id)} style={{
+              fontFamily: BODY, fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 999,
+              background: on ? C.teal : "#F1F4F6", color: on ? "#fff" : C.slate,
+            }}>{on ? "✓ " : ""}{t.display_name}</button>
+          );
+        };
+        return (
+          <div onClick={closeDay} style={{ position: "fixed", inset: 0, background: "rgba(12,34,51,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 20, zIndex: 50, overflowY: "auto" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 540, width: "100%", padding: 18, marginTop: 30, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ fontFamily: DISPLAY, fontSize: 22, fontWeight: 700, textTransform: "uppercase", color: C.ink }}>{dayLabel}</h3>
+                <button onClick={closeDay} style={{ fontSize: 20, color: C.slate, fontWeight: 700, lineHeight: 1 }}>✕</button>
+              </Row>
+
+              <SectionTitle>Scheduled ({onDay.length})</SectionTitle>
+              {onDay.length === 0 ? (
+                <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Nothing scheduled this day yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {onDay.map((o) => (
+                    <div key={o.id} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 10 }}>
+                      <Row style={{ justifyContent: "space-between", gap: 8 }}>
+                        <button onClick={() => { closeDay(); onOpen(o.id); }} style={{ textAlign: "left", fontFamily: BODY }}>
+                          <span style={{ fontFamily: DISPLAY, fontSize: 17, fontWeight: 700, color: C.ink }}>{o.customer_name}</span>
+                          <span style={{ fontSize: 13, color: C.slate, marginLeft: 8 }}>{skiText(o) || (o.kind === "maintenance" ? "Maintenance" : "—")}</span>
+                        </button>
+                        <button onClick={() => schedule(o.id, null)} style={{ fontSize: 12, fontWeight: 600, color: C.red, fontFamily: BODY }}>Unschedule</button>
+                      </Row>
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.slate, fontFamily: BODY, margin: "8px 0 4px" }}>Assigned techs</div>
+                      <Row style={{ gap: 6 }}>{crew.map((t) => techChip(o, t))}</Row>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <SectionTitle>Add a job to this day ({toAdd.length})</SectionTitle>
+              {toAdd.length === 0 ? (
+                <div style={{ fontSize: 14, color: C.slate, fontFamily: BODY }}>Every open job already has a date.</div>
+              ) : (
+                <div style={{ borderRadius: 8, border: `1px solid ${C.line}`, overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
+                  {toAdd.map((o) => (
+                    <Row key={o.id} style={{ justifyContent: "space-between", padding: "8px 10px", borderTop: `1px solid ${C.line}`, gap: 8 }}>
+                      <button onClick={() => { closeDay(); onOpen(o.id); }} style={{ textAlign: "left", fontFamily: BODY, flex: 1, minWidth: 0 }}>
+                        <span style={{ fontWeight: 700, color: C.ink }}>{o.customer_name}</span>
+                        <span style={{ fontSize: 12, color: C.slate, marginLeft: 6 }}>{skiText(o) || (o.kind === "maintenance" ? "Maintenance" : o.issue || "—")}</span>
+                      </button>
+                      <button onClick={() => schedule(o.id, dayModal)} style={btnSm(C.orange)}>Add</button>
+                    </Row>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </Card>
   );
 }
